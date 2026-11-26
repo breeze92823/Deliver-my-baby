@@ -308,6 +308,8 @@ onKey('KeyN', () => lighting.toggleDayNight())
 onKey('KeyE', () => game.onKey('KeyE'))
 bloxity.onRespawnRequest(() => game.respawn?.())
 onKey('KeyR', () => game.respawn?.())
+onKey('KeyB', () => hud.dexKey()) // the Babydex
+onKey('KeyU', () => hud.upgKey()) // the upgrade shop
 installTouch({ mode: toggleMode })
 
 hud.start(GAME_TITLE, () => {

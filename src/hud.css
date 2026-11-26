@@ -1084,6 +1084,468 @@
   width: 1.1em;
   height: 1.1em;
 }
+/* --- Right tool column under the babies counter: Babydex + Upgrades ------------------------- */
+.rtools {
+  position: absolute;
+  right: calc(var(--safe-r) + var(--pad));
+  top: calc(var(--safe-t) + var(--pad) + 56px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+.dex-btn,
+.upg-btn {
+  position: relative;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 0 8px;
+  border-radius: 999px;
+  border: 3px solid #2a3f8a;
+  background: linear-gradient(#7ec3ff, #3f7ff0);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font: 700 18px Fredoka, sans-serif;
+  white-space: nowrap;
+}
+.upg-btn {
+  border-color: #1d6b33;
+  background: linear-gradient(#8ff0b4, #2fb85a);
+}
+.dex-btn:active,
+.upg-btn:active {
+  transform: scale(0.95);
+}
+.dex-btn .book,
+.upg-btn .book {
+  font-size: 22px;
+  line-height: 1;
+}
+.dex-btn .cnt {
+  color: #fff7c2;
+}
+.upg-btn .dot {
+  background: #ffb020;
+}
+.dex-btn .dot,
+.upg-btn .dot {
+  position: absolute;
+  right: -6px;
+  top: -8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ff3a5c;
+  border: 2px solid #fff;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: center;
+  animation: bump 0.9s ease-in-out infinite;
+}
+.reward .gain .bonus {
+  font-size: 0.7em;
+  color: #6dff5a;
+}
+
+.dexwin {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 6, 24, 0.55);
+  pointer-events: auto;
+  z-index: 5;
+}
+.dexwin .box {
+  width: min(94vw, 780px);
+  max-height: calc(100vh - var(--safe-t) - var(--safe-b) - 24px);
+  max-height: calc(100dvh - var(--safe-t) - var(--safe-b) - 24px);
+  display: flex;
+  flex-direction: column;
+  background: #262a3a;
+  border: 5px solid #5aa8ff;
+  border-radius: 24px;
+  padding: clamp(8px, 2vmin, 16px);
+  animation: cardIn2 0.3s cubic-bezier(0.2, 1.4, 0.4, 1);
+  box-sizing: border-box;
+}
+.dexwin .dhead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dexwin .dtitle {
+  font-size: clamp(22px, 5vmin, 38px);
+  font-weight: 700;
+}
+.dexwin .dcount {
+  font-size: clamp(18px, 3.6vmin, 28px);
+  font-weight: 700;
+  color: #fff7c2;
+  margin-left: auto;
+}
+.dexwin .dclose {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 50%;
+  border: 3px solid rgba(0, 0, 0, 0.35);
+  background: #ff5f7a;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  padding: 0;
+}
+.dexwin .dbar {
+  height: 10px;
+  margin: 6px 0 4px;
+  border-radius: 999px;
+  background: #151826;
+  overflow: hidden;
+}
+.dexwin .dbar div {
+  height: 100%;
+  background: linear-gradient(90deg, #5aa8ff, #b45cff, #ffb020);
+}
+.dexwin .dpity {
+  font-size: clamp(13px, 2.4vmin, 18px);
+  color: #dcd6ee;
+  margin-bottom: 6px;
+}
+.dexwin .dlist {
+  overflow-x: hidden;
+  overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  min-height: 0;
+  padding-right: 4px;
+}
+.dexwin .drow {
+  margin-bottom: 10px;
+}
+.dexwin .drowhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 6px;
+}
+.dexwin .rname {
+  color: var(--rc);
+  font-weight: 700;
+  font-size: clamp(16px, 3vmin, 22px);
+}
+.dexwin .rcount {
+  font-weight: 700;
+  color: #b9b4cc;
+}
+.dexwin .dreward {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font: 700 15px Fredoka, sans-serif;
+  white-space: nowrap;
+}
+.dexwin .dreward .mini-coin,
+.dexwin .dclaim .mini-coin {
+  width: 1.05em;
+  height: 1.05em;
+}
+.dexwin .dreward.locked {
+  background: #3a3f55;
+  color: #9aa0b8;
+}
+.dexwin .dreward.done {
+  background: #1f3a2a;
+  color: #7fe39e;
+}
+.dexwin .dreward.ready,
+.dexwin .dclaim {
+  border: 3px solid #1d6b33;
+  background: linear-gradient(#7ff09d, #2fb85a);
+  color: #fff;
+  animation: bump 0.9s ease-in-out infinite;
+}
+.dexwin .dgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(98px, 1fr));
+  gap: 8px;
+}
+.dexwin .dcard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 4px 6px;
+  border-radius: 14px;
+  background: #31364a;
+  border: 3px solid var(--rc);
+  text-align: center;
+}
+.dexwin .dcard.unknown {
+  border-color: #454a60;
+  background: #2a2e3f;
+}
+.dexwin .dcard.ready {
+  box-shadow: 0 0 0 3px #6dff5a inset;
+}
+.dexwin .demo {
+  font-size: 40px;
+  line-height: 1.15;
+}
+.dexwin .unknown .demo {
+  filter: brightness(0) invert(0.32);
+}
+.dexwin .dname {
+  font-weight: 700;
+  font-size: 15px;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.dexwin .unknown .dname {
+  color: #6f7590;
+}
+.dexwin .dstars {
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+.dexwin .st {
+  color: #474c63;
+}
+.dexwin .st.s0.on {
+  color: #e0904a;
+}
+.dexwin .st.s1.on {
+  color: #dfe6f0;
+}
+.dexwin .st.s2.on {
+  color: #ffcf3a;
+}
+.dexwin .dn {
+  font-size: 14px;
+  color: #cfd3e6;
+}
+.dexwin .dn .shiny {
+  color: #ffd23a;
+}
+.dexwin .dnext {
+  font-size: 12px;
+  color: #8f95ad;
+  min-height: 28px;
+  line-height: 28px;
+}
+.dexwin .dclaim {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font: 700 14px Fredoka, sans-serif;
+}
+.dexwin .dall {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: linear-gradient(90deg, rgba(90, 168, 255, 0.2), rgba(255, 176, 32, 0.2));
+  font-weight: 700;
+  font-size: clamp(15px, 2.6vmin, 19px);
+}
+.dexwin .dhint {
+  font-size: 12px;
+  color: #8f95ad;
+  text-align: center;
+  margin: 8px 0 2px;
+}
+@media (max-height: 480px) {
+  .rtools {
+    flex-direction: row-reverse;
+  }
+  .rtools .lbl {
+    display: none;
+  }
+  .dex-btn,
+  .upg-btn {
+    padding: 0 10px 0 6px;
+  }
+  .dexwin .dpity,
+  .dexwin .dhint {
+    display: none;
+  }
+  .dexwin .demo {
+    font-size: 30px;
+  }
+}
+
+/* --- Upgrade shop (shares the Babydex window frame) -------------------------------------- */
+.upgwin .box {
+  width: min(94vw, 640px);
+  border-color: #3fcf7f;
+}
+.upgwin .ucoins {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.upgwin .ucoins .mini-coin {
+  width: 1em;
+  height: 1em;
+}
+.upgwin .urow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: 16px;
+  background: #31364a;
+  border: 3px solid #454a60;
+  overflow: hidden;
+}
+.upgwin .urow.maxed {
+  border-color: #ffcf3a;
+  background: linear-gradient(90deg, #3a3524, #31364a);
+}
+.upgwin .uico {
+  flex: none;
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  font-size: 34px;
+  border-radius: 14px;
+  background: #262a3a;
+}
+.upgwin .umid {
+  flex: 1;
+  min-width: 0;
+}
+.upgwin .uname {
+  font-weight: 700;
+  font-size: clamp(16px, 2.8vmin, 20px);
+}
+.upgwin .ulvl {
+  white-space: nowrap;
+  font-size: 0.75em;
+  color: #9fe8ff;
+  margin-left: 4px;
+}
+.upgwin .uabout {
+  font-size: 13px;
+  color: #b9b4cc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.upgwin .upips {
+  display: flex;
+  gap: 4px;
+  margin: 4px 0 2px;
+}
+.upgwin .pip {
+  width: 18px;
+  height: 7px;
+  border-radius: 999px;
+  background: #1b1e2c;
+}
+.upgwin .pip.on {
+  background: linear-gradient(90deg, #5ae0ff, #3fcf7f);
+}
+.upgwin .pip.new {
+  animation: pipIn 0.5s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+@keyframes pipIn {
+  from {
+    transform: scaleX(0.1) scaleY(2.4);
+    background: #ffffff;
+  }
+}
+.upgwin .ufx {
+  font-size: 13px;
+  color: #cfd3e6;
+}
+.upgwin .ufx i {
+  color: #8f95ad;
+}
+.upgwin .ufx .nx {
+  color: #7fe39e;
+}
+.upgwin .ubuy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 86px;
+  justify-content: center;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 14px;
+  border: 3px solid #1d6b33;
+  background: linear-gradient(#7ff09d, #2fb85a);
+  color: #fff;
+  font: 700 18px Fredoka, sans-serif;
+}
+.upgwin .ubuy .mini-coin {
+  width: 1em;
+  height: 1em;
+}
+.upgwin .ubuy.poor {
+  border-color: #3a3f55;
+  background: #454a60;
+  color: #c9cbe0;
+}
+.upgwin .ubuy.max {
+  border-color: #b8860b;
+  background: linear-gradient(#ffe27a, #ffb020);
+}
+/* bought: the icon hops and a shine sweeps the row */
+.upgwin .urow.bought .uico {
+  animation: hop 0.55s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+@keyframes hop {
+  40% {
+    transform: translateY(-10px) scale(1.18) rotate(-8deg);
+  }
+}
+.upgwin .urow.bought::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.35) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: shine 0.7s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes shine {
+  to {
+    transform: translateX(100%);
+  }
+}
+@media (max-width: 420px) {
+  .upgwin .uabout {
+    display: none;
+  }
+  .upgwin .uico {
+    width: 44px;
+    height: 44px;
+    font-size: 28px;
+  }
+  .upgwin .ubuy {
+    min-width: 72px;
+    font-size: 16px;
+  }
+}
+
 /* chat bubbles (Bloxity chat) over moms: a little wider, pinker border */
 .bubble.chat {
   border-color: #ff8ad0;
@@ -1101,6 +1563,10 @@
 @media (max-height: 500px) {
   .touch-ui .shop {
     top: 40%;
+  }
+  /* between the Babydex / Upgrades row above it and the CAM button below it */
+  .touch-ui .shop.right {
+    top: calc(40% + 18px);
   }
 }
 @media (max-aspect-ratio: 3/4) {
@@ -1136,6 +1602,18 @@
     right: 50%;
     transform: translateX(50%);
     top: 12vh;
+  }
+  /* portrait: compact, under the Kill All button (mirrors Free Coins under Twins), clear of the
+     top-centre Skip To End */
+  .rtools {
+    top: calc(38% + clamp(76px, 20vw, 120px) * 0.8 + 14px);
+  }
+  .dex-btn,
+  .upg-btn {
+    padding: 0 10px 0 6px;
+  }
+  .rtools .lbl {
+    display: none;
   }
 }
 @media (max-height: 480px) {

@@ -90,21 +90,32 @@ export function createHud() {
   const fade = el('div', 'fade')
   const mute = el('button', 'mute')
   const babies = el('div', 'babies hidden')
-  root.append(world, coins, adBtn, twinsBtn, killAllBtn, topc, botc, barTop, barBot, subtitle, titleCard, layer, skipCut, babies, mute, fade)
+  // The Babydex (dex.js): count found + a red dot while a collection reward waits.
+  const dexBtn = el('button', 'dex-btn', `<span class="book">📖</span><span class="lbl outlined">Babydex</span><span class="cnt outlined">0/0</span><span class="dot hidden"></span>`)
+  // Permanent upgrades (upgrades.js): a green dot counts the ones you can afford right now.
+  const upgBtn = el('button', 'upg-btn', `<span class="book">⬆️</span><span class="lbl outlined">Upgrades</span><span class="dot hidden"></span>`)
+  // The right-hand tool column: Babydex + Upgrades (a row on short landscape screens, under Kill All in portrait).
+  const rtools = el('div', 'rtools')
+  rtools.append(dexBtn, upgBtn)
+  root.append(world, coins, adBtn, twinsBtn, killAllBtn, topc, botc, barTop, barBot, subtitle, titleCard, rtools, layer, skipCut, babies, mute, fade)
 
-  const gameplayEls = [coins, adBtn, twinsBtn, killAllBtn, topc, botc]
+  const gameplayEls = [coins, adBtn, twinsBtn, killAllBtn, topc, botc, rtools]
   const hud = {
     root,
     onTwins: null,
     onKillAll: null,
     onSkipEnd: null,
     onWatchAd: null,
+    onDex: null,
+    onUpgrades: null,
   }
   tap(adBtn, () => hud.onWatchAd?.())
   hud.setAdCoins = (n) => (adBtn.querySelector('.price').innerHTML = `${ICON.miniCoin}+${n}`)
   tap(twinsBtn, () => hud.onTwins?.())
   tap(killAllBtn, () => hud.onKillAll?.())
   tap(skipEnd, () => hud.onSkipEnd?.())
+  tap(dexBtn, () => hud.onDex?.())
+  tap(upgBtn, () => hud.onUpgrades?.())
   tap(coins, () => sound.click())
 
   // --- gameplay HUD ---
@@ -440,12 +451,173 @@ export function createHud() {
     }
   }
 
+  // --- Babydex button + window ---
+  hud.setDex = ({ found, total, alert }) => {
+    dexBtn.querySelector('.cnt').textContent = `${found}/${total}`
+    dexBtn.querySelector('.dot').classList.toggle('hidden', !alert)
+    dexBtn.querySelector('.dot').textContent = alert > 9 ? '9+' : String(alert || '')
+  }
+  // B key: open / close the book while the gameplay HUD is up.
+  let dexClose = null
+  hud.dexKey = () => {
+    if (dexClose) dexClose()
+    else if (!rtools.classList.contains('hidden')) hud.onDex?.()
+  }
+  // getView() -> dex.js dexView; onClaim(keys) -> true once the coins were paid (then redrawn).
+  hud.dex = (getView, onClaim) => {
+    if (dexClose || upgClose) return
+    document.exitPointerLock?.()
+    const w = el('div', 'dexwin')
+    layer.appendChild(w)
+    let scroll = 0
+    const coin = ICON.miniCoin
+    const stars = (n) => [0, 1, 2].map((i) => `<span class="st s${i}${i < n ? ' on' : ''}">★</span>`).join('')
+    const pill = (r) =>
+      r.state === 'ready'
+        ? `<button class="dreward ready outlined" data-claim="${r.key}">CLAIM ${coin}${r.coins}</button>`
+        : r.state === 'done'
+          ? `<span class="dreward done">✓ Claimed</span>`
+          : `<span class="dreward locked">${coin}${r.coins}</span>`
+    const card = (c) =>
+      `<div class="dcard${c.known ? '' : ' unknown'}${c.ready.length ? ' ready' : ''}"><div class="demo">${c.emoji}</div><div class="dname">${c.known ? c.name.replace(/ Baby$/, '') : '???'}</div>` +
+      (c.known ? `<div class="dstars">${stars(c.stars)}</div><div class="dn">×${c.n}${c.s ? ` <span class="shiny">✨${c.s}</span>` : ''}</div>` : `<div class="dstars dim">${stars(0)}</div><div class="dn">&nbsp;</div>`) +
+      (c.ready.length
+        ? `<button class="dclaim outlined" data-claim="${c.ready.join(',')}">+${c.readyCoins}</button>`
+        : c.known && c.next
+          ? `<div class="dnext">${c.n}/${c.next}</div>`
+          : `<div class="dnext">${c.known ? 'MAX' : ''}&nbsp;</div>`) +
+      `</div>`
+    const render = () => {
+      const v = getView()
+      const list = w.querySelector('.dlist')
+      if (list) scroll = list.scrollTop
+      w.innerHTML =
+        `<div class="box"><div class="dhead"><div class="dtitle outlined">📖 BABYDEX</div><div class="dcount outlined">${v.found} / ${v.total}</div><button class="dclose" aria-label="Close">✕</button></div>` +
+        `<div class="dbar"><div style="width:${(v.found / v.total) * 100}%"></div></div>` +
+        `<div class="dpity">🎁 <b style="color:${v.pityColor}">${v.pityName}</b> or better guaranteed within <b>${v.pityLeft}</b> ${v.pityLeft === 1 ? 'delivery' : 'deliveries'}</div>` +
+        `<div class="dlist">` +
+        v.rows.map((r) => `<div class="drow" style="--rc:${r.color}"><div class="drowhead"><span class="rname outlined">${r.name}</span><span class="rcount">${r.found}/${r.total}</span>${pill(r.reward)}</div><div class="dgrid">${r.cards.map(card).join('')}</div></div>`).join('') +
+        `<div class="dall"><span>🌟 Find every baby:</span>${pill(v.all)}</div>` +
+        `<div class="dhint">Stars at ${'5 / 15 / 40'} babies of a kind. Every reward is coins.</div></div></div>`
+      w.querySelector('.dlist').scrollTop = scroll
+      tap(w.querySelector('.dclose'), close)
+    }
+    // Claims on click (not pointerdown), so a drag that scrolls the list never claims.
+    w.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-claim]')
+      if (!b) return
+      const r = b.getBoundingClientRect()
+      if (onClaim(b.dataset.claim.split(','))) {
+        hud.floater(b.textContent.replace(/[^0-9+]/g, '').replace(/^(\d)/, '+$1'), r.left + r.width / 2, r.top)
+        render()
+      }
+    })
+    // The backdrop closes it; the box does not.
+    w.addEventListener('pointerdown', (e) => {
+      if (e.target === w) close()
+    })
+    const onKey = (e) => {
+      if (e.code === 'Escape') {
+        e.stopImmediatePropagation()
+        close()
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    function close() {
+      if (!dexClose) return
+      dexClose = null
+      sound.click()
+      window.removeEventListener('keydown', onKey, true)
+      w.remove()
+    }
+    dexClose = close
+    render()
+  }
+
+  // --- Upgrades button + shop window ---
+  hud.setUpgrades = ({ alert }) => {
+    const dot = upgBtn.querySelector('.dot')
+    dot.classList.toggle('hidden', !alert)
+    dot.textContent = String(alert || '')
+  }
+  let upgClose = null
+  // U key: open / close the shop while the gameplay HUD is up.
+  hud.upgKey = () => {
+    if (upgClose) upgClose()
+    else if (!rtools.classList.contains('hidden') && !dexClose) hud.onUpgrades?.()
+  }
+  // getView() -> upgrades.js upgView; onBuy(id) -> the new level once bought (0 = not bought).
+  hud.upgrades = (getView, onBuy) => {
+    if (upgClose || dexClose) return
+    document.exitPointerLock?.()
+    const w = el('div', 'dexwin upgwin')
+    layer.appendChild(w)
+    let scroll = 0
+    const pips = (lvl, max) => Array.from({ length: max }, (_, i) => `<span class="pip${i < lvl ? ' on' : ''}"></span>`).join('')
+    const row = (u) =>
+      `<div class="urow${u.price == null ? ' maxed' : ''}" data-id="${u.id}"><div class="uico">${u.icon}</div>` +
+      `<div class="umid"><div class="uname">${u.name} <span class="ulvl">Lv ${u.lvl}/${u.max}</span></div><div class="uabout">${u.about}</div>` +
+      `<div class="upips">${pips(u.lvl, u.max)}</div><div class="ufx">${u.lvl ? `<b>${u.now}</b>` : '<i>not owned</i>'}${u.next ? ` → <b class="nx">${u.next}</b>` : ''}</div></div>` +
+      (u.price == null
+        ? `<span class="ubuy max outlined">MAX</span>`
+        : `<button class="ubuy${u.afford ? '' : ' poor'} outlined" data-buy="${u.id}">${ICON.miniCoin}${u.price}</button>`) +
+      `</div>`
+    const render = () => {
+      const v = getView()
+      const list = w.querySelector('.dlist')
+      if (list) scroll = list.scrollTop
+      w.innerHTML =
+        `<div class="box"><div class="dhead"><div class="dtitle outlined">⬆️ UPGRADES</div><div class="dcount ucoins outlined">${ICON.miniCoin}${v.coins}</div><button class="dclose" aria-label="Close">✕</button></div>` +
+        `<div class="dpity">Kept forever. Paid with coins you earn by playing.</div>` +
+        `<div class="dlist">${v.items.map(row).join('')}</div></div>`
+      w.querySelector('.dlist').scrollTop = scroll
+      tap(w.querySelector('.dclose'), close)
+    }
+    // Buys on click (not pointerdown), so a drag that scrolls the list never buys.
+    w.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-buy]')
+      if (!b) return
+      const id = b.dataset.buy
+      const lvl = onBuy(id)
+      if (!lvl) {
+        b.animate([{ transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'none' }], { duration: 250 })
+        return
+      }
+      render()
+      // The row celebrates: the icon hops, the new pip pops in, a shine sweeps across.
+      const r = w.querySelector(`.urow[data-id="${id}"]`)
+      r?.classList.add('bought')
+      r?.querySelectorAll('.pip.on')[lvl - 1]?.classList.add('new')
+      const ico = r?.querySelector('.uico')?.getBoundingClientRect()
+      if (ico) hud.floater(`Lv ${lvl}!`, ico.left + ico.width / 2, ico.top, '#9fe8ff')
+    })
+    w.addEventListener('pointerdown', (e) => {
+      if (e.target === w) close()
+    })
+    const onKey = (e) => {
+      if (e.code === 'Escape') {
+        e.stopImmediatePropagation()
+        close()
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    function close() {
+      if (!upgClose) return
+      upgClose = null
+      sound.click()
+      window.removeEventListener('keydown', onKey, true)
+      w.remove()
+    }
+    upgClose = close
+    render()
+  }
+
   // --- reward card ---
-  hud.reward = ({ rarity, color, name, emoji = '🍼', quote, coins: gain, price, isNew = true }) =>
+  hud.reward = ({ rarity, color, name, emoji = '🍼', quote, coins: gain, price, isNew = false, bonus = '' }) =>
     new Promise((res) => {
       const w = el('div', 'reward')
       w.style.setProperty('--rc', color)
-      w.innerHTML = `<div class="rays"></div><div class="card"><div class="rhead outlined">${rarity}</div><div class="bname">${emoji} ${name}</div><div class="quote">"${quote}"</div><div class="gain">+${gain} coins</div><div class="btns"><button class="cute outlined">SO CUTE! ${emoji}</button><button class="again"><span class="outlined">NEW BABY?</span>${priceHTML(price)}</button></div></div>${isNew ? '<div class="new">NEW!</div>' : ''}`
+      w.innerHTML = `<div class="rays"></div><div class="card"><div class="rhead outlined">${rarity}</div><div class="bname">${emoji} ${name}</div><div class="quote">"${quote}"</div><div class="gain">+${gain} coins${bonus ? `<div class="bonus outlined">${bonus}</div>` : ''}</div><div class="btns"><button class="cute outlined">SO CUTE! ${emoji}</button><button class="again"><span class="outlined">NEW BABY?</span>${priceHTML(price)}</button></div></div>${isNew ? '<div class="new">NEW!</div>' : ''}`
       layer.appendChild(w)
       tap(w.querySelector('.cute'), () => {
         sound.click()

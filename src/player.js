@@ -20,6 +20,7 @@ export const player = {
   frozen: false, // ignore move/jump input (cutscenes, dialogues)
   autoTarget: null, // { x, z, speed?, facing? }: walk there by itself (queues)
   arrived: true, // reached autoTarget
+  speedMult: 1, // walk / run speed scale (the Comfy Shoes upgrade)
 }
 
 const HALF = PLAYER_DIMS.height / 2 // capsule centre above the feet
@@ -104,7 +105,7 @@ function step(dt) {
   const scale = len > 1 ? 1 / len : 1
   let wishX = (fwdX * mv.z + rightX * mv.x) * scale
   let wishZ = (fwdZ * mv.z + rightZ * mv.x) * scale
-  let speed = inputState.sprint ? PHYSICS.sprintSpeed : PHYSICS.walkSpeed
+  let speed = (inputState.sprint ? PHYSICS.sprintSpeed : PHYSICS.walkSpeed) * player.speedMult
   const at = player.autoTarget
   if (at) {
     const dx = at.x - player.position.x

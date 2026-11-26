@@ -28,6 +28,7 @@ import {
   Mesh,
   MeshPhysicalMaterial,
   MeshStandardMaterial,
+  OctahedronGeometry,
   PlaneGeometry,
   Quaternion,
   Skeleton,
@@ -479,17 +480,41 @@ export function bellyMaterial(color) {
 }
 
 // --- Babies ---------------------------------------------------------------------------------
+// The Babydex catalog. `rarity` indexes RARITIES; `coins` = the reward for keeping one; `emoji` = its
+// Babydex / reward-card portrait; optional `fold` (wrap-fold colour), `metal` / `glow` (swaddle finish).
+// Keep the count in step with the backend's DEX_TOTAL (constants.ts).
 export const BABY_TYPES = [
-  { id: 'sleepy', name: 'Sleepy Baby', rarity: 0, swaddle: '#8fb8ff', quote: 'Welcome to the world, {n}! Shh... nap first, cuddles later.', coins: 20 },
-  { id: 'giggly', name: 'Giggly Baby', rarity: 0, swaddle: '#ffb3d9', quote: '{n} giggled at the doctor. Instant best friends!', coins: 20 },
-  { id: 'bunny', name: 'Bunny Baby', rarity: 1, swaddle: '#f5f0ff', quote: '{n} came with ears! Hop hop hooray!', coins: 26 },
-  { id: 'dino', name: 'Dino Baby', rarity: 1, swaddle: '#7bd88f', quote: 'RAWR! {n} is ready to stomp around.', coins: 26 },
-  { id: 'royal', name: 'Royal Baby', rarity: 2, swaddle: '#8a2be2', quote: 'Welcome to the world, {n}! Bow before the tiny ruler!', coins: 32 },
-  { id: 'chef', name: 'Chef Baby', rarity: 2, swaddle: '#ffffff', quote: '{n} already wants to taste-test everything.', coins: 32 },
-  { id: 'astro', name: 'Astronaut Baby', rarity: 3, swaddle: '#dfe6ee', quote: '{n} landed from outer space. One small step!', coins: 60 },
-  { id: 'rainbow', name: 'Rainbow Baby', rarity: 3, swaddle: '#ff7aa8', quote: '{n} brightens every room. Pure sunshine!', coins: 60 },
-  { id: 'golden', name: 'Golden Baby', rarity: 4, swaddle: '#ffcf3a', quote: 'A one-in-a-million miracle! {n} is solid gold!', coins: 150 },
+  // COMMON
+  { id: 'sleepy', name: 'Sleepy Baby', rarity: 0, swaddle: '#8fb8ff', emoji: '😴', quote: 'Welcome to the world, {n}! Shh... nap first, cuddles later.', coins: 20 },
+  { id: 'giggly', name: 'Giggly Baby', rarity: 0, swaddle: '#ffb3d9', emoji: '😆', quote: '{n} giggled at the doctor. Instant best friends!', coins: 20 },
+  { id: 'teddy', name: 'Teddy Baby', rarity: 0, swaddle: '#c98b5a', emoji: '🧸', quote: '{n} is the cuddliest bundle in the whole hospital!', coins: 20 },
+  { id: 'duckling', name: 'Duckling Baby', rarity: 0, swaddle: '#ffe066', emoji: '🐥', quote: 'Quack! {n} waddled straight into our hearts.', coins: 20 },
+  { id: 'sunflower', name: 'Sunflower Baby', rarity: 0, swaddle: '#8fd17a', emoji: '🌻', quote: '{n} turns toward every smile like a little sunflower.', coins: 20 },
+  { id: 'bubble', name: 'Bubble Baby', rarity: 0, swaddle: '#9fe3ff', emoji: '🫧', quote: '{n} blows the tiniest bubbles. Pop pop!', coins: 20 },
+  // UNCOMMON
+  { id: 'bunny', name: 'Bunny Baby', rarity: 1, swaddle: '#f5f0ff', emoji: '🐰', quote: '{n} came with ears! Hop hop hooray!', coins: 26 },
+  { id: 'dino', name: 'Dino Baby', rarity: 1, swaddle: '#7bd88f', emoji: '🦖', quote: 'RAWR! {n} is ready to stomp around.', coins: 26 },
+  { id: 'kitty', name: 'Kitty Baby', rarity: 1, swaddle: '#c9c3d6', emoji: '🐱', quote: '{n} purrs when you rock them. Meow!', coins: 26 },
+  { id: 'frog', name: 'Froggy Baby', rarity: 1, swaddle: '#6fd36f', emoji: '🐸', quote: 'Ribbit! {n} is ready to leap into life.', coins: 26 },
+  { id: 'panda', name: 'Panda Baby', rarity: 1, swaddle: '#ffffff', fold: '#2a2a2e', emoji: '🐼', quote: '{n} only wants bamboo and naps.', coins: 26 },
+  { id: 'pirate', name: 'Pirate Baby', rarity: 1, swaddle: '#e8453c', fold: '#ffffff', emoji: '🦜', quote: 'Arr! Captain {n} has taken over the nursery!', coins: 26 },
+  // RARE
+  { id: 'royal', name: 'Royal Baby', rarity: 2, swaddle: '#8a2be2', emoji: '👑', quote: 'Welcome to the world, {n}! Bow before the tiny ruler!', coins: 32 },
+  { id: 'chef', name: 'Chef Baby', rarity: 2, swaddle: '#ffffff', emoji: '👨‍🍳', quote: '{n} already wants to taste-test everything.', coins: 32 },
+  { id: 'ninja', name: 'Ninja Baby', rarity: 2, swaddle: '#2b2b3a', fold: '#45455a', emoji: '🥷', quote: '{n} arrived so quietly nobody saw it happen.', coins: 32 },
+  { id: 'mermaid', name: 'Mermaid Baby', rarity: 2, swaddle: '#3fc6b8', emoji: '🧜', quote: '{n} splashed in with a sparkly tail!', coins: 32 },
+  { id: 'robot', name: 'Robot Baby', rarity: 2, swaddle: '#b8c2cc', metal: true, emoji: '🤖', quote: 'BEEP BOOP. {n} has been fully charged with love.', coins: 32 },
+  // EPIC
+  { id: 'astro', name: 'Astronaut Baby', rarity: 3, swaddle: '#dfe6ee', emoji: '🚀', quote: '{n} landed from outer space. One small step!', coins: 60 },
+  { id: 'rainbow', name: 'Rainbow Baby', rarity: 3, swaddle: '#ff7aa8', emoji: '🌈', quote: '{n} brightens every room. Pure sunshine!', coins: 60 },
+  { id: 'alien', name: 'Alien Baby', rarity: 3, swaddle: '#9cf05a', emoji: '👽', quote: '{n} comes in peace... and wants milk.', coins: 60 },
+  { id: 'dragon', name: 'Dragon Baby', rarity: 3, swaddle: '#e0473a', emoji: '🐉', quote: '{n} sneezed a tiny puff of smoke. Adorable!', coins: 60 },
+  { id: 'wizard', name: 'Wizard Baby', rarity: 3, swaddle: '#3a3f9e', emoji: '🧙', quote: 'Abracadabra! {n} made the diapers disappear.', coins: 60 },
+  // LEGENDARY
+  { id: 'golden', name: 'Golden Baby', rarity: 4, swaddle: '#ffcf3a', metal: true, emoji: '✨', quote: 'A one-in-a-million miracle! {n} is solid gold!', coins: 150 },
+  { id: 'cosmic', name: 'Cosmic Baby', rarity: 4, swaddle: '#2a1a5e', glow: '#3a1a8a', emoji: '🌌', quote: '{n} has a whole galaxy twinkling inside!', coins: 150 },
 ]
+export const babyType = (id) => BABY_TYPES.find((b) => b.id === id) ?? null
 export const RARITIES = [
   { name: 'COMMON', color: '#9aa4b2', weight: 46 },
   { name: 'UNCOMMON', color: '#4fd06a', weight: 28 },
@@ -497,12 +522,19 @@ export const RARITIES = [
   { name: 'EPIC', color: '#b45cff', weight: 8 },
   { name: 'LEGENDARY', color: '#ffb020', weight: 2 },
 ]
-export function rollBabyType(rand = Math.random) {
-  const total = RARITIES.reduce((s, r) => s + r.weight, 0)
+// The rarity weights at a Lucky Charm level: each level moves LUCK_SHIFT of weight off Common onto
+// the rarer tiers (the total stays 100).
+const LUCK_SHIFT = [-3, 0, 1.5, 1, 0.5]
+export const rarityWeights = (luck = 0) => RARITIES.map((r, i) => Math.max(0, r.weight + LUCK_SHIFT[i] * luck))
+// A random type by rarity weight. `minRarity` (the Babydex pity timer) rolls only among that rarity
+// and above, by their own weights; `luck` = the Lucky Charm level.
+export function rollBabyType(rand = Math.random, { minRarity = 0, luck = 0 } = {}) {
+  const weights = rarityWeights(luck)
+  const total = weights.reduce((s, w, i) => s + (i >= minRarity ? w : 0), 0)
   let x = rand() * total
-  let rarity = 0
-  for (let i = 0; i < RARITIES.length; i++) {
-    x -= RARITIES[i].weight
+  let rarity = minRarity
+  for (let i = minRarity; i < RARITIES.length; i++) {
+    x -= weights[i]
     if (x <= 0) {
       rarity = i
       break
@@ -528,20 +560,168 @@ function bm(parent, geo, mat, x, y, z, sx = 1, sy = sx, sz = sx, rx = 0, ry = 0,
   return m
 }
 
+// The accessories of the Babydex types not drawn inline in buildBaby, as fn(hat, g). The baby lies
+// along +X (head at +X, feet at -X, the face looking up / forward); `hat` sits on the crown of the head
+// (its +Y = away from the head, +X = toward the face), `g` is the whole baby.
+const SPARKLE_GEO = new OctahedronGeometry(1, 0)
+const SHINY_SPARKLES = [[-0.18, 0.28, 0.12, 0.022], [0.05, 0.36, -0.14, 0.018], [0.32, 0.34, 0.12, 0.016], [-0.3, 0.16, -0.12, 0.014]]
+const bubbleMat = new MeshPhysicalMaterial({ color: '#dff6ff', transparent: true, opacity: 0.35, roughness: 0.05, iridescence: 1, iridescenceIOR: 1.6, depthWrite: false })
+const roundEars = (hat, outer, inner) => {
+  for (const z of [-0.075, 0.075]) {
+    bm(hat, BASE.sphereLo, bmat(outer, 0.85), -0.025, 0.02, z, 0.045, 0.045, 0.028)
+    if (inner) bm(hat, BASE.sphereLo, bmat(inner, 0.9), -0.005, 0.022, z, 0.026, 0.028, 0.03)
+  }
+}
+const BABY_EXTRAS = {
+  teddy: (hat) => roundEars(hat, '#8a5a32', '#f3c7a0'),
+  panda: (hat) => roundEars(hat, '#222226', null),
+  duckling(hat, g) {
+    const tuft = bmat('#ffc81f', 0.7)
+    ;[-0.5, 0, 0.5].forEach((rz, i) => bm(hat, BASE.cone, tuft, -0.005 + i * 0.01, 0.035, (i - 1) * 0.012, 0.05, 0.07, 0.05, 0, 0, rz))
+    for (const z of [-0.06, 0.06]) bm(g, BASE.sphereLo, bmat('#ff9a2a', 0.6), -0.28, -0.03, z, 0.035, 0.012, 0.03) // little webbed feet
+  },
+  sunflower(hat) {
+    const petal = bmat('#ffd23a', 0.6)
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2
+      bm(hat, BASE.sphereLo, petal, Math.cos(a) * 0.06, 0.01, Math.sin(a) * 0.06, 0.035, 0.008, 0.016, 0, -a, 0)
+    }
+    bm(hat, BASE.sphereLo, bmat('#7a4a1a', 0.9), 0, 0.016, 0, 0.034, 0.014, 0.034)
+  },
+  bubble(hat, g, anim) {
+    // Bubbles drifting up from the baby, each on its own slow loop (they fade in low, out high).
+    const bubbles = [[-0.1, 0.04, 0.0], [0.06, 0.03, 0.35], [-0.22, 0.026, 0.62], [0.16, 0.02, 0.85]].map(([x, r, ph], i) => {
+      const m = bm(g, BASE.sphere, bubbleMat, x, 0.3, (i % 2 ? -1 : 1) * 0.05, r)
+      m.castShadow = false
+      return { m, x, r, ph }
+    })
+    anim.push((t) => {
+      for (const b of bubbles) {
+        const k = (t * 0.22 + b.ph) % 1 // 0 -> 1 rising
+        b.m.position.y = 0.22 + k * 0.3
+        b.m.position.x = b.x + Math.sin(t * 2 + b.ph * 9) * 0.015
+        const s = b.r * Math.min(1, k * 6) * Math.min(1, (1 - k) * 4)
+        b.m.scale.setScalar(Math.max(0.0001, s))
+      }
+    })
+  },
+  kitty(hat) {
+    for (const sz of [-1, 1]) {
+      bm(hat, BASE.cone, bmat('#8f879f', 0.8), -0.01, 0.045, sz * 0.06, 0.13, 0.08, 0.13, sz * 0.35, 0, 0)
+      bm(hat, BASE.cone, bmat('#ffb3cf', 0.9), 0.008, 0.04, sz * 0.058, 0.07, 0.055, 0.07, sz * 0.35, 0, 0)
+    }
+  },
+  frog(hat) {
+    for (const z of [-0.05, 0.05]) {
+      bm(hat, BASE.sphereLo, bmat('#4fbf4f', 0.7), -0.005, 0.02, z, 0.04)
+      bm(hat, BASE.sphereLo, bmat('#ffffff', 0.4), 0.02, 0.035, z, 0.028)
+      bm(hat, BASE.sphereLo, bmat('#141414', 0.3), 0.043, 0.045, z, 0.013)
+    }
+  },
+  pirate(hat) {
+    const black = bmat('#1d1d24', 0.7)
+    bm(hat, BASE.cyl, black, 0, 0.005, 0, 0.12, 0.014, 0.1)
+    bm(hat, BASE.sphere, black, 0, 0.012, 0, 0.075, 0.05, 0.068)
+    bm(hat, BASE.sphereLo, bmat('#ffffff', 0.5), 0.068, 0.04, 0, 0.016, 0.016, 0.016) // the skull badge
+    bm(hat, BASE.cone, bmat('#ffd23a', 0.4), -0.02, 0.06, 0, 0.06, 0.04, 0.06) // a gold tip
+  },
+  ninja(hat) {
+    const red = bmat('#e0243a', 0.6)
+    // A ring around the head, its axis the crown direction (the face looks along +X+Y, the crown
+    // is up-and-back of it), well back from the face.
+    const band = bm(hat, BASE.torus, red, -0.05, -0.08, 0, 0.095, 0.095, 0.15)
+    band.rotation.order = 'ZYX'
+    band.rotation.set(0, Math.PI / 2, 2.5)
+    for (const sz of [-1, 1]) bm(hat, BASE.sphereLo, red, -0.13, -0.15, sz * 0.03, 0.06, 0.012, 0.02, 0, sz * 0.4, -0.6) // headband tails
+  },
+  mermaid(hat, g) {
+    const fin = bmat('#2aa89c', 0.4, { metalness: 0.3 })
+    for (const sz of [-1, 1]) bm(g, BASE.sphere, fin, -0.33, 0.02, sz * 0.06, 0.07, 0.018, 0.06, 0, sz * 0.6, 0)
+    bm(hat, BASE.sphereLo, bmat('#ffb3c8', 0.5), 0, 0.02, 0.06, 0.032, 0.02, 0.032) // seashell clip
+    bm(hat, BASE.sphereLo, bmat('#fff4c2', 0.2, { metalness: 0.4 }), 0.02, 0.025, 0.06, 0.012)
+  },
+  robot(hat, g, anim) {
+    const steel = bmat('#7d8894', 0.35, { metalness: 0.7 })
+    bm(hat, BASE.cyl, steel, 0, 0.05, 0, 0.008, 0.09, 0.008)
+    // its own material, so each robot's light blinks on its own beat
+    const light = new MeshStandardMaterial({ color: '#ff3a3a', roughness: 0.3, emissive: '#ff2020', emissiveIntensity: 1.2 })
+    bm(hat, BASE.sphereLo, light, 0, 0.1, 0, 0.022)
+    anim.push((t) => (light.emissiveIntensity = (t * 1.3) % 1 < 0.5 ? 1.6 : 0.25))
+    for (const sz of [-1, 1]) bm(g, BASE.cyl, steel, -0.05, 0.02, sz * 0.172, 0.022, 0.012, 0.022, Math.PI / 2, 0, 0) // bolts
+  },
+  alien(hat, g, anim) {
+    const stalk = bmat('#6fc23a', 0.6)
+    const ball = bmat('#ff7ae8', 0.3, { emissive: '#ff3ad0', emissiveIntensity: 1.1 })
+    // Each antenna is a pivot at its root that sways, so stalk and ball move as one piece.
+    const stalks = [-1, 1].map((sz) => {
+      const pivot = new Group()
+      pivot.position.set(-0.01, 0.005, sz * 0.02)
+      hat.add(pivot)
+      const arm = new Group()
+      arm.rotation.x = sz * 0.45
+      pivot.add(arm)
+      bm(arm, BASE.cyl, stalk, 0, 0.05, 0, 0.008, 0.1, 0.008)
+      bm(arm, BASE.sphereLo, ball, 0, 0.1, 0, 0.022)
+      return { pivot, sz }
+    })
+    anim.push((t) => {
+      for (const s of stalks) s.pivot.rotation.z = Math.sin(t * 2.4 + s.sz) * 0.18
+    })
+  },
+  dragon(hat, g) {
+    for (const sz of [-1, 1]) bm(hat, BASE.cone, bmat('#ffe7b0', 0.5), -0.01, 0.045, sz * 0.05, 0.09, 0.07, 0.09, sz * 0.3, 0, 0.4)
+    const wing = bmat('#b8302a', 0.6)
+    for (const sz of [-1, 1]) bm(g, BASE.sphere, wing, -0.1, 0.17, sz * 0.12, 0.085, 0.012, 0.055, sz * 1.0, 0, 0.2)
+    for (let i = 0; i < 4; i++) bm(g, BASE.cone, bmat('#ffb84a', 0.6), -0.18 + i * 0.07, 0.15, 0, 0.07, 0.07, 0.07)
+  },
+  wizard(hat, g, anim) {
+    const robe = bmat('#5b3fc8', 0.7)
+    bm(hat, BASE.cyl, robe, 0, 0, 0, 0.11, 0.012, 0.11)
+    bm(hat, new ConeGeometry(0.085, 0.24, 14), robe, -0.09, 0.07, 0, 1, 1, 1, 0, 0, 1.0)
+    const star = bmat('#ffe14d', 0.3, { emissive: '#ffcc00', emissiveIntensity: 0.6 })
+    const stars = [[-0.06, 0.06, 0.05], [-0.11, 0.1, -0.035], [-0.16, 0.13, 0.012]].map(([x, y, z]) => bm(hat, SPARKLE_GEO, star, x, y, z, 0.014))
+    anim.push((t) => stars.forEach((m, i) => m.scale.setScalar(0.014 * (0.75 + 0.35 * Math.sin(t * 3 + i * 2.1)))))
+  },
+  cosmic(hat, g, anim) {
+    const halo = bm(hat, BASE.torus, bmat('#e6d4ff', 0.2, { emissive: '#b894ff', emissiveIntensity: 1.3 }), 0, 0.07, 0, 0.08, 0.08, 0.06, Math.PI / 2, 0, 0)
+    const star = bmat('#ffffff', 0.2, { emissive: '#cfe0ff', emissiveIntensity: 1.6 })
+    // Little stars orbiting the swaddle (clear of it: the body is 0.27 x 0.18, the orbit 0.3 x 0.24).
+    const orbit = new Group()
+    orbit.position.set(-0.02, 0.06, 0)
+    g.add(orbit)
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2
+      bm(orbit, SPARKLE_GEO, star, Math.cos(a) * 0.3, Math.sin(a * 2) * 0.04, Math.sin(a) * 0.24, 0.012, 0.02, 0.012)
+    }
+    anim.push((t) => {
+      orbit.rotation.y = t * 0.6
+      halo.position.y = 0.07 + Math.sin(t * 1.8) * 0.008
+    })
+  },
+}
+
 // A swaddled baby (~0.75 m long at scale, lying along +X): swaddle with wrap
 // folds and a hood, tiny hands, face, hair curl, pacifier, type accessory, name tag.
-export function buildBaby(typeId = 'royal', name = null) {
+// `shiny`: the rare shimmering variant (Babydex), an iridescent swaddle with sparkles around it.
+export function buildBaby(typeId = 'royal', name = null, { shiny = false } = {}) {
   const type = BABY_TYPES.find((b) => b.id === typeId) ?? BABY_TYPES[0]
   const g = new Group()
   const swaddleMat = bellyMaterial(type.swaddle)
-  if (type.id === 'golden') {
+  if (type.metal) {
     swaddleMat.metalness = 0.6
     swaddleMat.roughness = 0.35
-    swaddleMat.emissive.set('#5a3a00')
+    if (type.id === 'golden') swaddleMat.emissive.set('#5a3a00')
   }
-  const fold = shade(type.swaddle, 0.85)
-  const foldMat = bellyMaterial('#' + fold.getHexString())
-  bm(g, BASE.sphere, swaddleMat, 0, 0, 0, 0.27, 0.16, 0.18)
+  if (type.glow) swaddleMat.emissive.set(type.glow)
+  if (shiny) {
+    swaddleMat.iridescence = 1
+    swaddleMat.iridescenceIOR = 1.8
+    swaddleMat.sheenColor.set('#fff2a8')
+    swaddleMat.emissive.lerp(new Color('#ffffff'), 0.08)
+  }
+  const foldMat = bellyMaterial(type.fold ?? '#' + shade(type.swaddle, 0.85).getHexString())
+  const anim = [] // fn(t) per animated part, run by g.userData.animate
+  const body = bm(g, BASE.sphere, swaddleMat, 0, 0, 0, 0.27, 0.16, 0.18)
   // wrap folds: tilted rings around the body
   for (let i = 0; i < 3; i++) bm(g, BASE.torus, foldMat, -0.14 + i * 0.1, 0.01, 0, 0.14 - Math.abs(i - 1) * 0.02, 0.15, 0.17, 0, Math.PI / 2, 0.35)
   // hood behind the head
@@ -555,7 +735,7 @@ export function buildBaby(typeId = 'royal', name = null) {
   const head = bm(g, BASE.sphere, skinMat, 0.27, 0.07, 0, 0.12)
   void head
   for (const sz of [-1, 1]) bm(g, BASE.sphereLo, skinMat, 0.25, 0.07, sz * 0.12, 0.025, 0.035, 0.02) // ears
-  for (const sz of [-1, 1]) bm(g, BASE.sphereLo, skinMat, 0.1, 0.13, sz * 0.07, 0.035, 0.03, 0.035) // hands peeking
+  const hands = [-1, 1].map((sz) => bm(g, BASE.sphereLo, skinMat, 0.1, 0.13, sz * 0.07, 0.035, 0.03, 0.035)) // hands peeking
   bm(g, BASE.torus, bmat('#7a4a2a', 0.8), 0.33, 0.19, 0, 0.025, 0.025, 0.04, 0, 0, 1.2) // hair curl
   const ft = new CanvasTexture(paintFace(5, 128))
   ft.colorSpace = SRGBColorSpace
@@ -589,14 +769,39 @@ export function buildBaby(typeId = 'royal', name = null) {
   } else if (type.id === 'astro') {
     bm(hat, BASE.sphere, new MeshPhysicalMaterial({ color: '#cfefff', transparent: true, opacity: 0.32, roughness: 0.05, metalness: 0.1 }), 0.01, -0.12, 0, 0.17)
     bm(hat, BASE.torus, bmat('#c9ced8', 0.3, { metalness: 0.6 }), -0.03, -0.17, 0, 0.13, 0.13, 0.13, 0, 0, Math.PI / 2 - 0.3)
+  } else BABY_EXTRAS[type.id]?.(hat, g, anim)
+  if (shiny) {
+    const sparkle = bmat('#fff1a0', 0.2, { emissive: '#ffd23a', emissiveIntensity: 1.4, metalness: 0.3 })
+    const sparks = SHINY_SPARKLES.map(([x, y, z, r]) => ({ m: bm(g, SPARKLE_GEO, sparkle, x, y, z, r, r * 1.6, r, 0, x * 3, 0.4), r, y }))
+    anim.push((t) => {
+      sparks.forEach((s, i) => {
+        const tw = 0.55 + 0.45 * Math.sin(t * 4 + i * 1.7) // twinkle
+        s.m.scale.set(s.r * tw, s.r * 1.6 * tw, s.r * tw)
+        s.m.rotation.y = t * 1.5 + i
+        s.m.position.y = s.y + Math.sin(t * 1.2 + i) * 0.012
+      })
+    })
+  }
+  // Breathing (the swaddle swells a little; hands and head stay put, so nothing pokes through) and
+  // tiny hands that wiggle now and then. `phase` keeps two babies in the arms out of step.
+  const phase = Math.random() * 10
+  anim.push((t) => {
+    const b = Math.sin((t + phase) * 2.1)
+    body.scale.set(0.27, 0.16 * (1 + b * 0.025), 0.18 * (1 + b * 0.02))
+    const w = Math.max(0, Math.sin((t + phase) * 0.9)) // wiggle bursts
+    hands.forEach((h, i) => (h.position.y = 0.13 + Math.sin((t + phase) * 9 + i * 1.6) * 0.008 * w))
+  })
+  g.userData.animate = (t) => {
+    for (const fn of anim) fn(t)
   }
   if (name) {
-    const tag = label(name, 0.13, { color: '#ff5fb4', outline: '#ffffff', outlineWidth: 12 })
+    const tag = label(shiny ? `✨${name}✨` : name, 0.13, { color: shiny ? '#ffb020' : '#ff5fb4', outline: '#ffffff', outlineWidth: 12 })
     tag.position.set(0.1, 0.42, 0)
     g.add(tag)
     g.userData.tag = tag
   }
   g.userData.type = type
+  g.userData.shiny = shiny
   g.scale.setScalar(1.5) // read clearly in the arms and the crib
   return g
 }

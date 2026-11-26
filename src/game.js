@@ -12,8 +12,8 @@
 // Multiplayer: the other real players are moms in the same rooms (remote.js). Online the lines'
 // order is the server's (queue.js); Kill / Kill All on a real mom is relayed (net.sendTroll) and her
 // own game knocks her out (`G.onTrolled`: death screen, back to the end of the line).
-import { Euler, Group, Vector3 } from 'three'
-import { ADS, DIALOGUE, LINES, MOMS, NAMES, PRICES, QUEUE, REMOTE, REWARDS, RIDE, BREATHING, HOSPITAL_NAME } from './config.js'
+import { Euler, Group, Mesh, ShaderMaterial, SphereGeometry, Vector3 } from 'three'
+import { ADS, DEX, DIALOGUE, LINES, MOMS, NAMES, PRICES, QUEUE, REMOTE, REWARDS, RIDE, BREATHING, HOSPITAL_NAME } from './config.js'
 import { store } from './store.js'
 import { canTroll, claimAdReward, cutLineOnServer, mySession, myTicket, net, onNetChange, rosterOf, sendTroll } from './net.js'
 import { deathScreen, hideScreenAd, setDevCharacter, showRewarded, showScreenAd } from './bloxity.js'
@@ -22,6 +22,8 @@ import { syncYawToPlayer } from './camera.js'
 import { inputState } from './input.js'
 import { sound, phoneRing, siren as makeSiren, engine as makeEngine, setAmbience, setMusic } from './audio.js'
 import { POSES, OVERLAYS, buildBaby, buildStaff, rollBabyType, RARITIES, BABY_TYPES } from './characters.js'
+import { DEX_TOTAL, claimDex, dexFound, dexView, isNewType, pityDue, recordBaby } from './dex.js'
+import { affordable, babyCoinMult, canBuy, levelUp, luck, magnetReach, rideSeconds, shieldsPerTrip, upgLevel, upgView, waitBonus, walkMult } from './upgrades.js'
 import { attachBelly, breatheBelly, removeBelly } from './avatar/belly.js'
 import { makeAnimator } from './avatar/animator.js'
 import { Queue } from './queue.js'
@@ -53,16 +55,19 @@ export function createGame(ctx) {
   }
 
   // --- coins ---
+  let coinsChanged = () => {} // set by the upgrade shop below
   const addCoins = (n, at = null) => {
     save.coins += n
     persist()
     hud.setCoins(save.coins)
+    coinsChanged()
     if (n > 0) {
       const p = at ?? { x: 160, y: window.innerHeight - 140 }
       hud.floater(`+${n}`, p.x, p.y)
     }
   }
-  const spend = (n) => {
+  // quiet: the caller plays its own purchase sound (upgrades), so two jingles never stack.
+  const spend = (n, quiet = false) => {
     if (save.coins < n) {
       sound.error()
       hud.toast(`Need ${n - save.coins} more coins!`, '#ff8a8a')
@@ -71,7 +76,8 @@ export function createGame(ctx) {
     save.coins -= n
     persist()
     hud.setCoins(save.coins)
-    sound.buy()
+    coinsChanged()
+    if (!quiet) sound.buy()
     return true
   }
   const refreshShop = () => hud.setShopPrices({ twins: PRICES.twins, killAll: PRICES.killAll, skipToEnd: PRICES.skipToEnd, twinsOwned: save.twins })
@@ -87,6 +93,9 @@ export function createGame(ctx) {
     hud.setBabies(save.delivered)
     refreshShop()
     applyBelly()
+    refreshDex()
+    applyUpgrades()
+    refreshUpg()
   })
 
   // --- avatar helpers (main.js calls G.onAvatar when the rig swaps) ---
@@ -114,10 +123,10 @@ export function createGame(ctx) {
     carried.length = 0
     carryText = list
       .slice(0, 2)
-      .map((b) => `${b.type}:${String(b.name).replace(/[^A-Za-z ]/g, '').slice(0, 20) || 'Baby'}`)
+      .map((b) => `${b.type}${b.shiny ? '*' : ''}:${String(b.name).replace(/[^A-Za-z ]/g, '').slice(0, 20) || 'Baby'}`)
       .join(',')
     list.forEach((info, i) => {
-      const baby = buildBaby(info.type, info.name)
+      const baby = buildBaby(info.type, info.name, { shiny: !!info.shiny })
       baby.position.set(-0.08 + i * 0.16, 1.1 + i * 0.16, 0.5)
       baby.rotation.y = 0.15
       ctx.playerGroup.add(baby)
@@ -133,7 +142,7 @@ export function createGame(ctx) {
     cribBabies.length = 0
     save.babies.slice(-home.cribSlots.length).forEach((info, i) => {
       const s = home.cribSlots[i]
-      const baby = buildBaby(info.type, info.name)
+      const baby = buildBaby(info.type, info.name, { shiny: !!info.shiny })
       baby.position.set(s.x, s.y, s.z)
       baby.rotation.y = i % 2 ? Math.PI * 0.5 : -Math.PI * 0.5
       scene.add(baby)
@@ -342,8 +351,20 @@ export function createGame(ctx) {
     const pp = player.renderPosition
     for (let i = pickups.length - 1; i >= 0; i--) {
       const c = pickups[i]
-      c.rotation.y += dt * 3
-      c.position.y = 1.0 + Math.sin(t * 2.5 + i) * 0.12
+      c.rotation.y += dt * (c.userData.pulled ? 14 : 3)
+      const d = Math.hypot(c.position.x - pp.x, c.position.z - pp.z)
+      if (!c.userData.pulled && d < magnetReach(save) && d >= 1.3 && Math.abs(c.position.y - pp.y - 1) < 1.6) {
+        c.userData.pulled = true
+        sound.magnet()
+      }
+      if (c.userData.pulled) {
+        // Pulled in along a smooth arc: faster the closer it gets, a fading glow trail behind it.
+        const k = Math.min(1, dt * (6 + 10 / Math.max(0.4, d)))
+        c.position.x += (pp.x - c.position.x) * k
+        c.position.z += (pp.z - c.position.z) * k
+        c.position.y += (pp.y + 1.1 - c.position.y) * k
+        fx.glow.spawn(c.position.x, c.position.y, c.position.z, 0, 0.3, 0, { color: '#ffe27a', size: 0.3, size1: 0, life: 0.35, drag: 1 })
+      } else c.position.y = 1.0 + Math.sin(t * 2.5 + i) * 0.12
       if (Math.hypot(c.position.x - pp.x, c.position.z - pp.z) < 1.3 && Math.abs(c.position.y - pp.y - 1) < 1.6) {
         fx.sparkle(c.position, { color: '#ffd84a', count: 18 })
         fx.ring({ x: c.position.x, y: pp.y, z: c.position.z }, '#ffe066', 1.4, 0.4)
@@ -522,6 +543,7 @@ export function createGame(ctx) {
     G.state = 'walk1'
     trip.name = null
     trip.twinsThisTrip = false
+    G.shields = shieldsPerTrip(save)
     const s = home.standSpot
     releasePuppet(s.x, s.z + 0.5, Math.PI * 0.95)
     G.cameraMode = 'follow'
@@ -612,9 +634,16 @@ export function createGame(ctx) {
     G.cameraMode = 'script'
     cam.free = true
     cam.attach = () => ({ p: TMP_P.set(r.x + A.rideCam.x, A.rideCam.y + ambulance.body.position.y, r.z + A.rideCam.z), l: TMP_L.set(r.x + A.rideLook.x, A.rideLook.y, r.z + A.rideLook.z) })
-    G.rideLeft = RIDE.duration
+    G.rideLeft = rideSeconds(save)
     G.rideMult = 1
     rideIncome = 0
+    const turbo = upgLevel(save, 'ambulance')
+    if (turbo) {
+      setTimeout(() => {
+        sound.turbo(turbo)
+        hud.toast(`🚑 Turbo Ambulance: ${rideSeconds(save)}s ride!`, '#a8f0ff')
+      }, 700)
+    }
     hud.setGameplay(true)
     hud.objective('Tip: Speed Up makes the ambulance drive 2x faster!', null, true)
     updateSpeedButton()
@@ -626,6 +655,7 @@ export function createGame(ctx) {
     await hud.fade(0, 500)
   }
   let rideIncome = 0
+  let turboStreakT = 0
   function updateSpeedButton() {
     if (G.rideMult >= 4) hud.action('MAX SPEED', null, () => sound.error(), { disabled: true })
     else hud.action('Speed Up', PRICES.speedUp * G.rideMult, buySpeedUp)
@@ -649,14 +679,28 @@ export function createGame(ctx) {
     ambulance.bpm = 126 + Math.sin(performance.now() / 1300) * 4
     siren.set(0.55, 0.75)
     engine.set(Math.min(1, speed / 30), 0.8)
+    // exhaust + road dust behind the truck (visible through the rear windows)
+    const r = ambulance.root.position
     rideIncome += dt
     if (rideIncome >= RIDE.incomeEvery) {
       rideIncome = 0
-      addCoins(REWARDS.rideTick)
-      sound.coin(1.2)
+      // the notes rise just in front of the ride camera, over you on the stretcher
+      const at = camera.getWorldDirection(V(0, 0, 0)).multiplyScalar(1.8).add(camera.position)
+      at.y -= 0.35
+      if (!waitIncome(REWARDS.rideTick, at)) sound.coin(1.2)
     }
-    // exhaust + road dust behind the truck (visible through the rear windows)
-    const r = ambulance.root.position
+    // Turbo Ambulance: blue sparks streaming off the exhaust, more with each level.
+    const turbo = upgLevel(save, 'ambulance')
+    if (turbo && Math.random() < dt * 6 * turbo) {
+      const ex = ambulance.exhaust
+      fx.glow.spawn(r.x + ex.x + 0.3, ex.y + 0.1, r.z + ex.z, speed * 0.25 + Math.random() * 2, 0.3 + Math.random() * 0.8, (Math.random() - 0.5) * 0.8, { color: Math.random() < 0.5 ? '#3fb8ff' : '#9fe8ff', size: 0.5, size1: 0.05, life: 0.6, drag: 1.6 })
+    }
+    // ...and every so often a few speed streaks rush past the rear windows
+    turboStreakT -= dt
+    if (turbo && turboStreakT <= 0) {
+      turboStreakT = 2.4 - turbo * 0.3
+      fx.streaks(V(camera.position.x + 6, camera.position.y - 1, camera.position.z), V(-1, 0, 0), 3 + turbo * 2)
+    }
     if (Math.random() < dt * 8) fx.smoke(V(r.x + ambulance.exhaust.x + 0.5, ambulance.exhaust.y, r.z + ambulance.exhaust.z), V(speed * 0.35, 0.2, 0), { alpha: 0.25 })
     if (Math.random() < dt * 4 * G.rideMult) fx.dust(V(r.x + 5.5, 0.1, r.z + (Math.random() - 0.5) * 2.5), { count: 2, color: '#9a9aa6', size: 0.5, speed: 2 })
     hud.info(`Arriving in ${hud.fmt(G.rideLeft)}`, 'Hang on tight, mama!')
@@ -859,12 +903,13 @@ export function createGame(ctx) {
     if (q.playerIn && !q.done) {
       const i = q.playerIndex
       const ahead = i === 0 ? "You're next!" : `${i} ${i === 1 ? 'mom' : 'moms'} ahead of you`
-      hud.info(`#${i + 1} in line`, q.hasBots ? `about ${hud.fmt(q.eta())} to go` : ahead)
+      const shields = G.shields > 0 ? ` · 🛡️${G.shields}` : ''
+      hud.info(`#${i + 1} in line`, (q.hasBots ? `about ${hud.fmt(q.eta())} to go` : ahead) + shields)
       hud.action('Cut Line', PRICES.cutLine, buyCutLine)
       queueIncome += dt
       if (queueIncome >= QUEUE.incomeEvery) {
         queueIncome = 0
-        addCoins(REWARDS.queueTick)
+        waitIncome(REWARDS.queueTick, V(pp.x, pp.y + 2.1, pp.z))
       }
       // Kill prompt above the mom right in front (a bot, or a real mom: relayed to her game)
       const ve = q.victim()
@@ -958,6 +1003,168 @@ export function createGame(ctx) {
     q.cooldown = Math.min(q.cooldown, 1.2)
   }
   hud.onKillAll = buyKillAll
+
+  // --- Permanent upgrades (upgrades.js, UPGRADES in config.js): coins only ---
+  const refreshUpg = () => hud.setUpgrades({ alert: affordable(save) })
+  coinsChanged = refreshUpg
+  function applyUpgrades() {
+    player.speedMult = walkMult(save)
+  }
+  hud.onUpgrades = () => {
+    sound.pop()
+    hud.upgrades(
+      () => upgView(save),
+      (id) => {
+        const price = canBuy(save, id)
+        if (!price) {
+          sound.error()
+          return 0
+        }
+        if (!spend(price, true)) return 0
+        levelUp(save, id)
+        persist()
+        applyUpgrades()
+        if (id === 'shield') G.shields++ // the new block works on this trip too
+        const lvl = upgLevel(save, id)
+        sound.levelUp(lvl)
+        const pp = player.renderPosition
+        fx.sparkle(V(pp.x, pp.y + 1.2, pp.z), { count: 30 + lvl * 6, color: '#9fe8ff', speed: 3 })
+        fx.burst(V(pp.x, pp.y + 1.4, pp.z), ['#7fd8ff', '#ffffff', '#ffe14d', '#b47bff'], { count: 24, speed: 4, size: 0.4 })
+        fx.ring(V(pp.x, pp.y + 0.15, pp.z), '#7fd8ff', 2.4, 0.7)
+        refreshUpg()
+        return lvl
+      },
+    )
+  }
+  applyUpgrades()
+  refreshUpg()
+
+  // Lullaby: the waiting income pays more, with soft pastel notes rising and a music-box chime.
+  let lullStep = 0
+  // Saturated, normally blended (fx.puff): they must read on the white ambulance interior too,
+  // where additive glow would wash out.
+  const NOTE_COLORS = ['#ff4fa3', '#3f8fff', '#9b5cff', '#21c46b']
+  function waitIncome(base, at) {
+    const extra = waitBonus(save)
+    addCoins(base + extra)
+    if (!extra) return false
+    sound.lullaby(lullStep)
+    lullStep += 2
+    for (let i = 0; i < 5 + extra; i++) {
+      const a = Math.random() * Math.PI * 2
+      const o = { color: NOTE_COLORS[i % NOTE_COLORS.length], size: 0.22, size1: 0.1, life: 1.4 + Math.random() * 0.5, alpha: 0.95, drag: 0.6, spin: (Math.random() - 0.5) * 2 }
+      fx.puff.spawn(at.x + Math.cos(a) * 0.3, at.y, at.z + Math.sin(a) * 0.3, Math.cos(a) * 0.2, 0.55 + Math.random() * 0.35, Math.sin(a) * 0.2, o)
+      fx.glow.spawn(at.x + Math.cos(a) * 0.3, at.y, at.z + Math.sin(a) * 0.3, Math.cos(a) * 0.2, 0.55 + Math.random() * 0.35, Math.sin(a) * 0.2, { ...o, color: '#ffffff', size: 0.12, size1: 0 })
+    }
+    return true
+  }
+
+  // Line Shield: blocks per trip; a block raises a wobbling bubble around you that pops.
+  G.shields = 0
+  const shieldGeo = new SphereGeometry(1, 40, 24)
+  // A soap-bubble shield: bright fresnel rim, nearly clear middle (you stay visible inside it), a slow
+  // rainbow sheen sliding over it. Normal blending, so it reads on bright days and dark rooms alike.
+  const shieldMaterial = () =>
+    new ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uOpacity: { value: 1 } },
+      transparent: true,
+      depthWrite: false,
+      vertexShader: `
+        varying vec3 vN; varying vec3 vV; varying vec3 vP;
+        void main() {
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          vN = normalize(normalMatrix * normal);
+          vV = normalize(-mv.xyz);
+          vP = position;
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `
+        uniform float uTime; uniform float uOpacity;
+        varying vec3 vN; varying vec3 vV; varying vec3 vP;
+        void main() {
+          float rim = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.4);
+          float band = 0.5 + 0.5 * sin(vP.y * 5.0 + vP.x * 3.0 + uTime * 2.2);
+          vec3 sheen = 0.5 + 0.5 * cos(6.2831 * (band + vec3(0.0, 0.33, 0.67)));
+          vec3 col = mix(vec3(0.62, 0.92, 1.0), vec3(1.0), rim * 0.6) + sheen * 0.18 * (1.0 - rim);
+          float a = (0.07 + rim * 0.85 + band * 0.05) * uOpacity;
+          gl_FragColor = vec4(col, a);
+        }`,
+    })
+  const bubbles = [] // { m, t }
+  function shieldBlock(from) {
+    G.shields--
+    const m = new Mesh(shieldGeo, shieldMaterial())
+    // Around the avatar (about 1.8 m tall): 1.2 m wide, 1.05 m tall about y 1.1, so it clears the head
+    // (top 2.15 m) and sits on the ground (bottom 0.05 m) instead of cutting into it.
+    m.position.y = 1.1
+    m.renderOrder = 2
+    ctx.playerGroup.add(m)
+    bubbles.push({ m, t: 0 })
+    sound.shield()
+    const pp = player.renderPosition
+    fx.ring(V(pp.x, pp.y + 0.1, pp.z), '#9fe8ff', 2, 0.5)
+    hud.toast(`🛡️ Shield blocked ${from || 'a mom'}'s Kill!${G.shields ? ` (${G.shields} left)` : ''}`, '#bfefff')
+  }
+  function updateBubbles(dt) {
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const b = bubbles[i]
+      b.t += dt
+      const t = b.t
+      let s
+      if (t < 0.3) s = (1 - Math.pow(1 - t / 0.3, 3)) * (1 + Math.sin((t / 0.3) * Math.PI) * 0.12) // pop in with overshoot
+      else s = 1 + Math.sin(t * 9) * 0.03 * Math.max(0, 1.6 - t) // wobble, settling
+      const w = Math.sin(t * 7) * 0.015 // jelly: wider as it squashes
+      b.m.scale.set(1.2 * s * (1 + w), 1.0 * s * (1 - w), 1.2 * s * (1 + w))
+      b.m.material.uniforms.uTime.value = t
+      if (t > 1.6) {
+        // pop: swell and fade fast, then sparkles where it was
+        const k = Math.min(1, (t - 1.6) / 0.15)
+        b.m.scale.multiplyScalar(1 + k * 0.15)
+        b.m.material.uniforms.uOpacity.value = 1 - k
+        if (k >= 1) {
+          const pp = player.renderPosition
+          fx.sparkle(V(pp.x, pp.y + 1.0, pp.z), { count: 36, color: '#dff8ff', speed: 3.5 })
+          sound.shieldPop()
+          b.m.parent?.remove(b.m)
+          b.m.material.dispose()
+          bubbles.splice(i, 1)
+        }
+      }
+    }
+  }
+
+  // Comfy Shoes: a light sky-blue dust trail and the odd sparkle from your feet while you run.
+  let trailT = 0
+  function updateShoesTrail(dt) {
+    const lvl = upgLevel(save, 'shoes')
+    if (!lvl || player.frozen || G.puppet || player.autoTarget || !player.grounded) return
+    const v = player.velocity
+    if (Math.hypot(v.x, v.z) < 4) return
+    trailT -= dt
+    if (trailT > 0) return
+    trailT = 0.11 - lvl * 0.012
+    const pp = player.renderPosition
+    fx.dust(V(pp.x - v.x * 0.03, pp.y + 0.02, pp.z - v.z * 0.03), { count: 2 + Math.floor(lvl / 2), color: '#8fcfff', size: 0.42, speed: 0.6, life: 0.7 })
+    if (Math.random() < 0.25 * lvl) fx.glow.spawn(pp.x - v.x * 0.02, pp.y + 0.15, pp.z - v.z * 0.02, (Math.random() - 0.5) * 0.8, 0.9, (Math.random() - 0.5) * 0.8, { color: '#7fe0ff', size: 0.28, size1: 0, life: 0.55, drag: 1.5 })
+  }
+
+  // --- Babydex (dex.js): the collection book; its rewards are coins ---
+  const refreshDex = () => hud.setDex({ found: dexFound(save), total: DEX_TOTAL, alert: dexView(save).claimable })
+  hud.onDex = () => {
+    sound.pop()
+    hud.dex(
+      () => dexView(save),
+      (keys) => {
+        const coins = claimDex(save, keys)
+        if (!coins) return false
+        addCoins(coins)
+        sound.fanfare()
+        refreshDex()
+        return true
+      },
+    )
+  }
+  refreshDex()
   hud.onTwins = async () => {
     if (save.twins) {
       sound.click()
@@ -1299,11 +1506,18 @@ export function createGame(ctx) {
   }
   let laborTick = null
 
+  // One delivered baby: { name, type, shiny?, pity? } (pity: the Babydex pity timer made it Epic+).
+  const rollBaby = (name, pity = false) => {
+    const b = { name, type: rollBabyType(Math.random, { minRarity: pity ? DEX.pityRarity : 0, luck: luck(save) }).id }
+    if (Math.random() < DEX.shinyChance) b.shiny = true
+    if (pity) b.pity = true
+    return b
+  }
   async function reveal() {
     const room = rooms.delivery
     const count = save.twins ? 2 : 1
     const names = [trip.name, ...pickNames(3).filter((n) => n !== trip.name)].slice(0, count)
-    let babies = names.map((name) => ({ name, type: rollBabyType().id }))
+    let babies = names.map((name, i) => rollBaby(name, pityDue(save, i)))
     setBelly(false)
     standAt(room.standSpot.x, room.standSpot.z, 0)
     G.avatarInput.pose = null
@@ -1317,58 +1531,104 @@ export function createGame(ctx) {
     sound.fanfare()
     fx.confettiRain(V(room.standSpot.x, 0, room.standSpot.z), { radius: 4, count: 220 })
     hud.title(`MEET ${names.join(' & ').toUpperCase()}!`)
+    if (luck(save)) {
+      // Lucky Charm: a ring of green clover sparkles spirals up around you before the reveal.
+      setTimeout(() => {
+        sound.lucky()
+        const c = room.standSpot
+        for (let i = 0; i < 24 + luck(save) * 6; i++) {
+          const a = (i / 12) * Math.PI * 2
+          fx.glow.spawn(c.x + Math.cos(a) * 0.9, 0.2 + i * 0.05, c.z + Math.sin(a) * 0.9, -Math.sin(a) * 1.4, 1.2, Math.cos(a) * 1.4, { color: i % 3 ? '#6dff8a' : '#e6ffb0', size: 0.34, size1: 0, life: 1.2, drag: 0.8 })
+        }
+      }, 900)
+    }
     await new Promise((r) => setTimeout(r, 2400))
     for (let i = 0; i < babies.length; i++) {
       let reroll = true
       while (reroll) {
         reroll = false
-        const type = BABY_TYPES.find((b) => b.id === babies[i].type)
+        const b = babies[i]
+        const type = BABY_TYPES.find((t) => t.id === b.type)
         const rar = RARITIES[type.rarity]
-        const article = /^[AEIOU]/i.test(type.name) ? 'AN' : 'A'
-        hud.title(`IT'S ${article} ${type.name.toUpperCase()}!`, '', { color: 'blue', tag: rar.name, tagColor: rar.color })
+        const kind = `${b.shiny ? 'SHINY ' : ''}${type.name.toUpperCase()}`
+        const article = /^[AEIOU]/i.test(kind) ? 'AN' : 'A'
+        const isNew = isNewType(save, type.id)
+        const proud = babyCoinMult(save)
+        const gain = Math.round((type.coins * (b.shiny ? DEX.shinyCoins : 1) + (isNew ? type.coins * DEX.newBonus : 0)) * proud)
+        hud.title(`IT'S ${article} ${kind}!`, b.pity ? 'Lucky streak! Guaranteed Epic or better' : '', {
+          color: 'blue',
+          tag: b.shiny ? `✨ SHINY ${rar.name} ✨` : rar.name,
+          tagColor: b.shiny ? '#ffd23a' : rar.color,
+        })
         sound.rarity(type.rarity)
-        fx.burst(V(room.standSpot.x, 1.6, room.standSpot.z + 0.4), [rar.color, '#ffffff', '#ffd84a'], { count: 40 + type.rarity * 20 })
-        if (type.rarity >= 3) fx.confettiRain(V(room.standSpot.x, 0, room.standSpot.z), { radius: 4, count: 200 })
+        fx.burst(V(room.standSpot.x, 1.6, room.standSpot.z + 0.4), [rar.color, '#ffffff', '#ffd84a'], { count: 40 + type.rarity * 20 + (b.shiny ? 60 : 0) })
+        if (type.rarity >= 3 || b.shiny) fx.confettiRain(V(room.standSpot.x, 0, room.standSpot.z), { radius: 4, count: 200 })
         await new Promise((r) => setTimeout(r, 2200))
         hud.title(null)
         const res = await hud.reward({
-          rarity: rar.name,
-          color: rar.color,
+          rarity: b.shiny ? `✨ SHINY ${rar.name} ✨` : rar.name,
+          color: b.shiny ? '#ffc21a' : rar.color,
           name: type.name,
-          emoji: { royal: '👑', sleepy: '😴', giggly: '😆', bunny: '🐰', dino: '🦖', chef: '👨‍🍳', astro: '🚀', rainbow: '🌈', golden: '✨' }[type.id] ?? '🍼',
-          quote: type.quote.replace('{n}', babies[i].name),
-          coins: type.coins,
+          emoji: type.emoji ?? '🍼',
+          quote: type.quote.replace('{n}', b.name),
+          coins: gain,
+          bonus: [isNew ? 'NEW BABY BONUS!' : b.shiny ? 'SHINY BONUS!' : '', proud > 1 ? `PROUD PARENT +${Math.round((proud - 1) * 100)}%` : ''].filter(Boolean).join(' · '),
           price: PRICES.newBaby,
+          isNew,
         })
-        if (res === 'again') {
-          if (spend(PRICES.newBaby)) {
-            babies[i] = { name: babies[i].name, type: rollBabyType().id }
-            carryBabies(babies)
-            sound.reveal()
-            reroll = true
-          } else {
-            addCoins(type.coins)
+        if (res === 'again' && spend(PRICES.newBaby)) {
+          babies[i] = rollBaby(b.name)
+          carryBabies(babies)
+          sound.reveal()
+          reroll = true
+          continue
+        }
+        // Kept (or the re-roll was not affordable): coins, then into the Babydex.
+        addCoins(gain)
+        if (proud > 1) {
+          // Proud Parent: a fountain of gold coins bursting up from the baby.
+          const c = room.standSpot
+          // Solid gold coins (normal blend: they stay gold instead of blowing out to white where they
+          // overlap), launched in a ring from the baby, with a few glints on top.
+          const n = 12 + upgLevel(save, 'parent') * 4
+          for (let k = 0; k < n; k++) {
+            const a = (k / n) * Math.PI * 2 + Math.random() * 0.3
+            const sp = 1.6 + Math.random() * 1.2
+            const x = c.x + Math.cos(a) * 0.25
+            const z = c.z + 0.4 + Math.sin(a) * 0.25
+            fx.puff.spawn(x, 1.4, z, Math.cos(a) * sp, 4.2 + Math.random() * 1.8, Math.sin(a) * sp, { color: k % 3 ? '#ffc21a' : '#ffe27a', size: 0.2, size1: 0.16, life: 1.2, alpha: 1, gravity: -9, drag: 0.3, spin: 5 })
+            if (k % 3 === 0) fx.glow.spawn(x, 1.4, z, Math.cos(a) * sp, 4.6, Math.sin(a) * sp, { color: '#fff3b0', size: 0.22, size1: 0, life: 0.8, gravity: -9, drag: 0.3 })
           }
-        } else addCoins(type.coins)
+          ;[0, 120, 240].forEach((ms, k) => setTimeout(() => sound.coin(1 + k * 0.12), ms))
+          await new Promise((r) => setTimeout(r, 1100)) // let the fountain land before the walk home
+        }
+        recordBaby(save, b)
+        if (isNew) hud.toast(`📖 New in your Babydex! ${dexFound(save)}/${DEX_TOTAL}`, '#bfe6ff')
       }
     }
-    save.babies.push(...babies)
+    save.babies.push(...babies.map(({ name, type, shiny }) => (shiny ? { name, type, shiny } : { name, type })))
     save.trips++
     save.delivered += babies.length
     persist()
     hud.setBabies(save.delivered)
+    refreshDex()
+    if (dexView(save).claimable) setTimeout(() => hud.toast('🎁 Babydex reward ready to claim!', '#ffe14d'), 1800)
     await headingHome(babies)
   }
 
   async function headingHome(babies) {
-    hideRooms()
-    hideAllStaff()
     const H = HOSPITAL.x
     const fz = HOSPITAL.facadeZ
     let t = 0
+    // The delivery room goes away only once the screen is black (hiding it first flashed open sky).
+    const leaveRoom = () => {
+      hideRooms()
+      hideAllStaff()
+    }
     await cutscene(
       async () => {
         await hud.fade(1, 400)
+        leaveRoom()
         hud.cinema(true)
         setAmbience('outdoor')
         setMusic('celebrate')
@@ -1392,6 +1652,7 @@ export function createGame(ctx) {
         await W(5.5)
       },
       async () => {
+        leaveRoom() // also when the walk out was skipped before the fade finished
         hideScreenAd()
         G.puppetSpeed = 0
         cam.attach = null
@@ -1433,12 +1694,13 @@ export function createGame(ctx) {
   // ======================================================================================
   // MULTIPLAYER + BLOXITY
   // ======================================================================================
-  // Where you are, for who the other moms see (net.js trip.zone): the street and each line room
-  // are shared, cutscenes / the ride / the delivery room are yours alone.
+  // Where you are, for who the other moms see (net.js trip.zone): the hospital forecourt and each
+  // line room are shared; home, the walk out to the ambulance, cutscenes, the ride and the
+  // delivery room are yours alone (the other moms first appear once you reach the hospital).
   const SHARED_STATES = new Set(['queue', 'turn', 'talk', 'breathing', 'ko'])
   G.zone = () => {
     if (inCutscene) return 'solo'
-    if (G.state === 'walk1' || G.state === 'walk2') return 'street'
+    if (G.state === 'walk2') return 'street'
     if (G.room && G.room.id !== 'delivery' && SHARED_STATES.has(G.state)) return G.room.id
     return 'solo'
   }
@@ -1461,10 +1723,11 @@ export function createGame(ctx) {
   G.onTrolled = ({ id, from, sid, text }) => {
     const q = G.queue
     if (G.state !== 'queue' || !q?.inLine) return
-    if (id === 'kill' && text === mySession()) return void knockedOut(from)
+    const hit = () => (G.shields > 0 ? shieldBlock(from) : knockedOut(from))
+    if (id === 'kill' && text === mySession()) return void hit()
     if (id === 'killAll' && text === q.kind) {
       const by = rosterOf(sid)
-      if (by && by.line === q.kind && myTicket(q.kind) < by.ticket) knockedOut(from)
+      if (by && by.line === q.kind && myTicket(q.kind) < by.ticket) hit()
     }
   }
   // Knocked out of the line: down on the floor, Boxity's death screen, then back at the room's
@@ -1540,6 +1803,10 @@ export function createGame(ctx) {
 
   G.update = (dt, t) => {
     hud.tick(dt)
+    for (const b of carried) b.userData.animate?.(t)
+    for (const b of cribBabies) b.userData.animate?.(t)
+    updateBubbles(dt)
+    updateShoesTrail(dt)
     home.update(dt)
     for (const k in staff) {
       const s = staff[k]

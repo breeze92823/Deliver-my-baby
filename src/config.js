@@ -293,6 +293,29 @@ export const REWARDS = {
   breath: 3, // per good breath
   phase: 10, // finishing a phase
 }
+// The Babydex (dex.js, hud.dex): the baby collection book. Every reward is coins.
+export const DEX = {
+  shinyChance: 1 / 40, // a delivered (or re-rolled) baby is the shimmering shiny variant
+  shinyCoins: 2, // a shiny baby pays this many times its type's coins
+  newBonus: 2, // the first baby of a type pays this many extra times its coins
+  pityAfter: 15, // at the latest every 15th delivery is Epic or better...
+  pityRarity: 3, // ...this rarity (EPIC) or above
+  tiers: [5, 15, 40], // babies of one type for its bronze / silver / gold star
+  tierCoins: [25, 75, 200],
+  rowCoins: [100, 200, 400, 800, 1500], // finding every type of a rarity (COMMON..LEGENDARY)
+  allCoins: 5000, // the full Babydex
+}
+// Permanent upgrades (upgrades.js, hud.upgrades): coins only, never premium currency, priced a little
+// high. Level 1 costs `base`, each next level `grow` times more. Their effects live in upgrades.js.
+export const UPGRADES = [
+  { id: 'ambulance', icon: '🚑', name: 'Turbo Ambulance', about: 'A shorter ride to the hospital', max: 5, base: 200, grow: 2.2 },
+  { id: 'shoes', icon: '👟', name: 'Comfy Shoes', about: 'Walk and run faster', max: 5, base: 200, grow: 2.2 },
+  { id: 'magnet', icon: '🧲', name: 'Coin Magnet', about: 'Grab star coins from further away', max: 4, base: 200, grow: 2.2 },
+  { id: 'lullaby', icon: '🎵', name: 'Lullaby', about: 'More coins while you ride and wait in line', max: 5, base: 200, grow: 2.2 },
+  { id: 'lucky', icon: '🍀', name: 'Lucky Charm', about: 'Better odds of rare babies', max: 5, base: 300, grow: 2.2 },
+  { id: 'parent', icon: '💰', name: 'Proud Parent', about: 'More coins for every baby', max: 5, base: 200, grow: 2.2 },
+  { id: 'shield', icon: '🛡️', name: 'Line Shield', about: "Shrug off other moms' Kills in line", max: 3, base: 300, grow: 2.2 },
+]
 export const RIDE = { duration: 120, speed: 17, incomeEvery: 6 } // s, m/s
 // The lines (queue.js, the line approach of linepath.js): the line is a distance `s` along each
 // room's serpentine path (back of the line 0, head of the line = its length). Bot moms shuffle up,

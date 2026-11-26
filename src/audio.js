@@ -349,6 +349,60 @@ export const sound = {
     ;[1, 1.25, 1.5, 2, 2.5].forEach((r, i) => bell(base * r, t + i * 0.09, 1.2, 0.12))
     if (level >= 2) sound.cheer()
   },
+  // --- Upgrades ---
+  // Bought a level: a rising major arpeggio that climbs higher with the level, a soft thump and shimmer.
+  levelUp(level = 1) {
+    if (!ready()) return
+    const t = now()
+    const base = 523 * Math.pow(2, Math.min(level - 1, 6) / 12)
+    ;[1, 1.26, 1.5, 2].forEach((r, i) => osc('triangle', base * r, t + i * 0.07, 0.22, 0.14, sfx, { a: 0.004 }))
+    bell(base * 3, t + 0.3, 1.1, 0.12)
+    osc('sine', 110, t, 0.25, 0.35, sfx, { slide: 55 })
+    noise(t + 0.28, 0.5, 0.08, { freq: 7000, q: 0.8, a: 0.05 })
+  },
+  // Coin Magnet pulling a coin in: a short rising zip.
+  magnet() {
+    if (!ready()) return
+    const t = now()
+    osc('sine', 500, t, 0.14, 0.07, sfx, { slide: 1600 })
+    noise(t, 0.12, 0.06, { freq: 1500, slide: 5000, q: 4 })
+  },
+  // Lullaby paying out: two soft music-box notes from a pentatonic lullaby.
+  lullaby(step = 0) {
+    if (!ready()) return
+    const t = now()
+    const tune = [784, 659, 698, 587, 659, 523, 587, 659]
+    bell(tune[step % tune.length], t, 0.9, 0.07)
+    bell(tune[(step + 1) % tune.length] / 2, t + 0.16, 1.1, 0.05)
+  },
+  // Turbo Ambulance kicking in at the start of the ride: a low engine swell and a bright rev.
+  turbo(level = 1) {
+    if (!ready()) return
+    const t = now()
+    osc('sawtooth', 70, t, 0.8, 0.05, sfx, { slide: 140 + level * 30, a: 0.2 })
+    noise(t, 0.7, 0.12, { freq: 200, slide: 1800, q: 1.5, a: 0.3 })
+    osc('triangle', 660, t + 0.5, 0.25, 0.08, sfx, { slide: 990 })
+  },
+  // Lucky Charm glinting at a reveal: a sparkling downward run.
+  lucky() {
+    if (!ready()) return
+    const t = now()
+    ;[2093, 1760, 1568, 1319, 1175].forEach((f, i) => bell(f, t + i * 0.05, 0.5, 0.06))
+  },
+  // Line Shield raising its bubble, then popping as it eats the Kill.
+  shield() {
+    if (!ready()) return
+    const t = now()
+    osc('sine', 300, t, 0.35, 0.18, sfx, { slide: 900, a: 0.02 })
+    ;[1319, 1661, 1976].forEach((f, i) => bell(f, t + 0.06 + i * 0.05, 0.8, 0.08))
+    noise(t, 0.3, 0.08, { freq: 2500, slide: 6000, q: 2, a: 0.08 })
+  },
+  shieldPop() {
+    if (!ready()) return
+    const t = now()
+    osc('sine', 900, t, 0.08, 0.25, sfx, { slide: 250 })
+    noise(t, 0.12, 0.2, { freq: 3500, q: 1.5 })
+  },
 }
 
 // --- Loops -----------------------------------------------------------------------

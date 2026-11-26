@@ -6,9 +6,9 @@
 // bubble. Positions are drawn REMOTE.delay behind real time, interpolated between the poses she
 // sends ~10 a second.
 //
-// Where she is decides who sees her: `street` (home, the street, the hospital forecourt) is shared
-// by everyone there, each line room by the moms in it; `solo` (cutscenes, the ambulance ride, the
-// delivery room) is drawn for nobody.
+// Where she is decides who sees her: `street` (the hospital forecourt) is shared
+// by everyone there, each line room by the moms in it; `solo` (home and the walk to the ambulance,
+// cutscenes, the ambulance ride, the delivery room) is drawn for nobody.
 //
 // The lines: a mom standing in a room's line takes a place in every client's copy of that line
 // (queue.js reads `lineMembers`; online in the server's ticket order), and the spot she holds at its
@@ -140,7 +140,8 @@ export function createRemoteMoms({ scene, me, hud, project, fx }) {
     if (!carry) return
     carry.split(',').forEach((item, i) => {
       const [type, name] = item.split(':')
-      const baby = buildBaby(type, name || null)
+      const shiny = type.endsWith('*') // a shiny baby's type carries a trailing "*"
+      const baby = buildBaby(shiny ? type.slice(0, -1) : type, name || null, { shiny })
       baby.position.set(-0.08 + i * 0.16, 1.1 + i * 0.16, 0.5)
       baby.rotation.y = 0.15
       p.group.add(baby)
@@ -263,6 +264,7 @@ export function createRemoteMoms({ scene, me, hud, project, fx }) {
     animIn.pose = POSE_OF[s.anim] ?? null
     animIn.overlay = p.babies.length ? OVERLAYS.carry : null
     p.animator?.update(dt, animIn)
+    for (const b of p.babies) b.userData.animate?.(clock) // breathing, sparkles, bubbles...
     if (s.emote !== p.emoteId) {
       p.emoteId = s.emote
       if (s.emote) p.emote.play(s.emote)
