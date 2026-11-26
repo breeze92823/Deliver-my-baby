@@ -7,12 +7,14 @@
 //   "r:<rarity>"      - every type of that rarity found
 //   "all"             - every type found
 import { DEX } from './config.js'
-import { BABY_TYPES, RARITIES } from './characters.js'
+import { BABY_TYPES, RARITIES, inSeason, isLimited, seasonText } from './characters.js'
 
-export const DEX_TOTAL = BABY_TYPES.length
+// The core collection (limited / seasonal babies have their own row and never block completion).
+const CORE = BABY_TYPES.filter((t) => !isLimited(t))
+export const DEX_TOTAL = CORE.length
 const NONE = Object.freeze({ n: 0, s: 0 })
 export const dexEntry = (save, id) => (Object.hasOwn(save.dex, id) ? save.dex[id] : NONE)
-export const dexFound = (save) => BABY_TYPES.filter((t) => dexEntry(save, t.id).n > 0).length
+export const dexFound = (save) => CORE.filter((t) => dexEntry(save, t.id).n > 0).length
 export const isNewType = (save, id) => dexEntry(save, id).n === 0
 // Stars a type has earned (0..3).
 export const starsOf = (save, id) => DEX.tiers.filter((at) => dexEntry(save, id).n >= at).length
@@ -25,7 +27,8 @@ export function dexRewards(save) {
     DEX.tiers.forEach((at, i) => out.push({ key: `t:${t.id}:${i + 1}`, coins: DEX.tierCoins[i], reached: n >= at, type: t.id, tier: i + 1 }))
   }
   RARITIES.forEach((r, i) => {
-    const row = BABY_TYPES.filter((t) => t.rarity === i)
+    const row = CORE.filter((t) => t.rarity === i)
+    if (!row.length) return // the LIMITED row has no row reward
     out.push({ key: `r:${i}`, coins: DEX.rowCoins[i], reached: row.length > 0 && row.every((t) => dexEntry(save, t.id).n > 0), rarity: i })
   })
   out.push({ key: 'all', coins: DEX.allCoins, reached: dexFound(save) === DEX_TOTAL })
@@ -53,7 +56,7 @@ export function recordBaby(save, { type, shiny }) {
   e.n++
   if (shiny) e.s++
   const t = BABY_TYPES.find((b) => b.id === type)
-  save.pity = t && t.rarity >= DEX.pityRarity ? 0 : save.pity + 1
+  save.pity = t && t.rarity >= DEX.pityRarity && !isLimited(t) ? 0 : save.pity + 1 // a limited baby isn't an Epic
 }
 
 // Deliveries left until the pity baby (the one that will be Epic or better), at least 1.
@@ -72,9 +75,10 @@ export function dexView(save) {
     return {
       name: rar.name,
       color: rar.color,
+      limited: types.some(isLimited),
       found: types.filter((t) => dexEntry(save, t.id).n > 0).length,
       total: types.length,
-      reward: { key: row.key, coins: row.coins, state: state(row) },
+      reward: row ? { key: row.key, coins: row.coins, state: state(row) } : null,
       cards: types.map((t) => {
         const e = dexEntry(save, t.id)
         const ready = DEX.tiers.map((_, k) => byKey.get(`t:${t.id}:${k + 1}`)).filter((r) => r.reached && !r.claimed)
@@ -90,6 +94,7 @@ export function dexView(save) {
           next: DEX.tiers[stars] ?? null,
           ready: ready.map((r) => r.key),
           readyCoins: ready.reduce((sum, r) => sum + r.coins, 0),
+          season: isLimited(t) ? { now: inSeason(t), when: seasonText(t) } : null,
         }
       }),
     }

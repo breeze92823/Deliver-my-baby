@@ -42,7 +42,8 @@ export function createRemoteMoms({ scene, me, hud, project, fx }) {
   let clock = 0
   let hospitalCount = 0 // real moms in the line rooms (botShare)
 
-  const tagText = (s) => `${s.username || 'Mama'}${s.away ? ' (away)' : s.idle ? ' (idle)' : ''}`
+  // name + their Babydex count (📖 types found) + (away) / (idle)
+  const tagText = (s) => `${s.username || 'Mama'}${s.dex > 0 ? ` 📖${s.dex}` : ''}${s.away ? ' (away)' : s.idle ? ' (idle)' : ''}`
 
   // --- One mom -----------------------------------------------------------------------------------
   function create(sid, s, announce) {

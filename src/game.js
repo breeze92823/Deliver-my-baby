@@ -13,15 +13,20 @@
 // order is the server's (queue.js); Kill / Kill All on a real mom is relayed (net.sendTroll) and her
 // own game knocks her out (`G.onTrolled`: death screen, back to the end of the line).
 import { Euler, Group, Mesh, ShaderMaterial, SphereGeometry, Vector3 } from 'three'
-import { ADS, DEX, DIALOGUE, LINES, MOMS, NAMES, PRICES, QUEUE, REMOTE, REWARDS, RIDE, BREATHING, HOSPITAL_NAME } from './config.js'
+import { ADS, DEX, DIALOGUE, LINES, MOMS, NAMES, PRICES, QUEUE, REMOTE, REWARDS, RIDE, BREATHING, HOSPITAL_NAME, DAILY, DECOR, KILLS, TRIP_EVENTS, FIRST_TRIP, BREATHING_STYLES } from './config.js'
 import { store } from './store.js'
-import { canTroll, claimAdReward, cutLineOnServer, mySession, myTicket, net, onNetChange, rosterOf, sendTroll } from './net.js'
+import { canTroll, claimAdReward, cutLineOnServer, mySession, myTicket, net, onBragged, onNetChange, refreshDaily, rosterOf, sendBrag, sendTroll } from './net.js'
 import { deathScreen, hideScreenAd, setDevCharacter, showRewarded, showScreenAd } from './bloxity.js'
 import { player, resetPlayer } from './player.js'
 import { syncYawToPlayer } from './camera.js'
 import { inputState } from './input.js'
 import { sound, phoneRing, siren as makeSiren, engine as makeEngine, setAmbience, setMusic } from './audio.js'
-import { POSES, OVERLAYS, buildBaby, buildStaff, rollBabyType, RARITIES, BABY_TYPES } from './characters.js'
+import { POSES, OVERLAYS, buildBaby, buildStaff, rollBabyType, RARITIES, BABY_TYPES, SEASONAL, seasonalNow } from './characters.js'
+import { claimDay, dailyReady, dailyView, nowMs, onDailyChange, today } from './daily.js'
+import { claimBonus, claimMission, ensureToday, missionsReady, missionsView, track } from './missions.js'
+import { TRIP_EVENT_INFO, makeRain, rollTripEvent } from './tripEvents.js'
+import { buildNursery } from './decor.js'
+import { nextNudge } from './nudges.js'
 import { DEX_TOTAL, claimDex, dexFound, dexView, isNewType, pityDue, recordBaby } from './dex.js'
 import { affordable, babyCoinMult, canBuy, levelUp, luck, magnetReach, rideSeconds, shieldsPerTrip, upgLevel, upgView, waitBonus, walkMult } from './upgrades.js'
 import { attachBelly, breatheBelly, removeBelly } from './avatar/belly.js'
@@ -58,6 +63,7 @@ export function createGame(ctx) {
   let coinsChanged = () => {} // set by the upgrade shop below
   const addCoins = (n, at = null) => {
     save.coins += n
+    if (n > 0) save.earned += n // lifetime earnings (the Top Earners board), never lowered by spending
     persist()
     hud.setCoins(save.coins)
     coinsChanged()
@@ -137,7 +143,12 @@ export function createGame(ctx) {
 
   // Babies sleeping in the home crib.
   const cribBabies = []
+  let nursery = null // set below (needs the HUD hookups)
   function fillCrib() {
+    // the three before the crib's newest few play on the mat
+    const slots = home.cribSlots.length
+    nursery.setMatBabies(save.babies.slice(-(slots + 3), -slots).map((info) => buildBaby(info.type, info.name, { shiny: !!info.shiny })))
+    refreshNursery()
     for (const b of cribBabies) scene.remove(b)
     cribBabies.length = 0
     save.babies.slice(-home.cribSlots.length).forEach((info, i) => {
@@ -365,6 +376,8 @@ export function createGame(ctx) {
         c.position.y += (pp.y + 1.1 - c.position.y) * k
         fx.glow.spawn(c.position.x, c.position.y, c.position.z, 0, 0.3, 0, { color: '#ffe27a', size: 0.3, size1: 0, life: 0.35, drag: 1 })
       } else c.position.y = 1.0 + Math.sin(t * 2.5 + i) * 0.12
+      // Golden Stars: each coin trails rainbow sparkles
+      if (trip.event === 'golden' && Math.random() < dt * 10) fx.glow.spawn(c.position.x + (Math.random() - 0.5) * 0.5, c.position.y + (Math.random() - 0.5) * 0.5, c.position.z + (Math.random() - 0.5) * 0.5, 0, 0.6, 0, { color: ['#ffd23a', '#ff8ac2', '#7fd8ff', '#7fe39e'][i % 4], size: 0.3, size1: 0, life: 0.7, drag: 1 })
       if (Math.hypot(c.position.x - pp.x, c.position.z - pp.z) < 1.3 && Math.abs(c.position.y - pp.y - 1) < 1.6) {
         fx.sparkle(c.position, { color: '#ffd84a', count: 18 })
         fx.ring({ x: c.position.x, y: pp.y, z: c.position.z }, '#ffe066', 1.4, 0.4)
@@ -372,7 +385,8 @@ export function createGame(ctx) {
         pickupChain = Math.min(pickupChain + 1, 10)
         chainT = 1.2
         const s = ctx.project(c.position)
-        addCoins(REWARDS.pickup, s.visible ? s : null)
+        addCoins(trip.event === 'golden' ? TRIP_EVENTS.goldenStars.coins : REWARDS.pickup, s.visible ? s : null)
+        missionsDone(track('star'))
         scene.remove(c)
         pickups.splice(i, 1)
       }
@@ -401,7 +415,23 @@ export function createGame(ctx) {
   }
 
   // --- trip state ---
-  const trip = { name: null, names: [], twinsThisTrip: false }
+  // event: trip event id (tripEvents.js) or null; skip: line rooms this trip skips; usedSpeed: Speed Up bought.
+  const trip = { name: null, names: [], twinsThisTrip: false, event: null, skip: new Set(), usedSpeed: false }
+  const rain = makeRain(fx, scene)
+  const ROOM_ORDER = ['lobby', 'waiting', 'breathing', 'ultrasound', 'final']
+  // The next line room after `id`, past any this trip skips (the first trip, the 'early' event).
+  const nextRoom = (id) => {
+    let i = ROOM_ORDER.indexOf(id) + 1
+    while (i < ROOM_ORDER.length - 1 && trip.skip.has(ROOM_ORDER[i])) i++
+    return ROOM_ORDER[i]
+  }
+  // A trip event's banner: title + sting.
+  function announceEvent() {
+    const info = TRIP_EVENT_INFO[trip.event]
+    if (!info) return
+    sound.event()
+    hud.announce(`<b>${info.title}</b><br>${info.sub}`, info.color)
+  }
   const tripLines = (id) => {
     const base = LINES[id]
     const v = save.trips % 3
@@ -543,7 +573,13 @@ export function createGame(ctx) {
     G.state = 'walk1'
     trip.name = null
     trip.twinsThisTrip = false
+    trip.usedSpeed = false
+    trip.event = rollTripEvent(save.trips)
+    trip.skip = new Set(save.trips === 0 ? FIRST_TRIP.skipRooms : [])
+    if (trip.event === 'early') trip.skip.add(Math.random() < 0.5 ? 'waiting' : 'ultrasound')
     G.shields = shieldsPerTrip(save)
+    if (trip.event === 'golden' || trip.event === 'rain') setTimeout(announceEvent, 1200)
+    setTimeout(homeHints, trip.event ? 4800 : 2500)
     const s = home.standSpot
     releasePuppet(s.x, s.z + 0.5, Math.PI * 0.95)
     G.cameraMode = 'follow'
@@ -634,8 +670,11 @@ export function createGame(ctx) {
     G.cameraMode = 'script'
     cam.free = true
     cam.attach = () => ({ p: TMP_P.set(r.x + A.rideCam.x, A.rideCam.y + ambulance.body.position.y, r.z + A.rideCam.z), l: TMP_L.set(r.x + A.rideLook.x, A.rideLook.y, r.z + A.rideLook.z) })
-    G.rideLeft = rideSeconds(save)
-    G.rideMult = 1
+    G.rideLeft = save.trips === 0 ? Math.min(FIRST_TRIP.ride, rideSeconds(save)) : rideSeconds(save)
+    G.rideMult = trip.event === 'green' ? TRIP_EVENTS.greenLights.mult : 1
+    G.flatAt = trip.event === 'flat' ? G.rideLeft * 0.5 : -1 // the tire goes flat halfway
+    G.ridePaused = false
+    if (trip.event === 'green' || trip.event === 'flat') setTimeout(announceEvent, 900)
     rideIncome = 0
     const turbo = upgLevel(save, 'ambulance')
     if (turbo) {
@@ -656,6 +695,27 @@ export function createGame(ctx) {
   }
   let rideIncome = 0
   let turboStreakT = 0
+  // Trip event: the tire blows mid-ride; pump it up in time for coins, or the ride takes longer.
+  async function flatTire() {
+    G.ridePaused = true
+    sound.boom()
+    cam.shake = 0.8
+    engine.set(0.1, 0.4)
+    hud.action(null)
+    const ok = await hud.pump(TRIP_EVENTS.flatTire.taps, TRIP_EVENTS.flatTire.time)
+    if (G.state !== 'ride') return
+    if (ok) {
+      addCoins(TRIP_EVENTS.flatTire.coins)
+      sound.fanfare()
+      hud.toast(`Fixed it! +${TRIP_EVENTS.flatTire.coins} coins 🛞`, '#a8f0ff')
+    } else {
+      G.rideLeft += TRIP_EVENTS.flatTire.penalty
+      sound.miss()
+      hud.toast(`The paramedic fixed it... +${TRIP_EVENTS.flatTire.penalty}s`, '#ffd0d0')
+    }
+    G.ridePaused = false
+    updateSpeedButton()
+  }
   function updateSpeedButton() {
     if (G.rideMult >= 4) hud.action('MAX SPEED', null, () => sound.error(), { disabled: true })
     else hud.action('Speed Up', PRICES.speedUp * G.rideMult, buySpeedUp)
@@ -663,6 +723,7 @@ export function createGame(ctx) {
   function buySpeedUp() {
     if (G.state !== 'ride' || G.rideMult >= 4) return
     if (!spend(PRICES.speedUp * G.rideMult)) return
+    trip.usedSpeed = true
     G.rideMult *= 2
     sound.speedUp()
     cam.shake = 0.6
@@ -672,6 +733,15 @@ export function createGame(ctx) {
     updateSpeedButton()
   }
   function updateRide(dt) {
+    if (G.ridePaused) {
+      hud.info(`Arriving in ${hud.fmt(G.rideLeft)}`, 'Flat tire! Pump it up!')
+      return
+    }
+    if (G.flatAt > 0 && G.rideLeft <= G.flatAt) {
+      G.flatAt = -1
+      flatTire()
+      return
+    }
     const speed = RIDE.speed * G.rideMult
     G.rideLeft -= dt * G.rideMult
     treadmill.scroll(speed * dt)
@@ -711,6 +781,7 @@ export function createGame(ctx) {
   // PHASE 2 - ARRIVAL
   // ======================================================================================
   async function arriveHospital() {
+    if (trip.event === 'early') setTimeout(announceEvent, 2500)
     G.state = 'arrive'
     cam.free = false
     hud.action(null)
@@ -903,7 +974,12 @@ export function createGame(ctx) {
     if (q.playerIn && !q.done) {
       const i = q.playerIndex
       const ahead = i === 0 ? "You're next!" : `${i} ${i === 1 ? 'mom' : 'moms'} ahead of you`
-      const shields = G.shields > 0 ? ` · 🛡️${G.shields}` : ''
+      const shields = (G.shields > 0 ? ` · 🛡️${G.shields}` : '') + (performance.now() < G.immuneUntil ? ` · 😇${Math.ceil((G.immuneUntil - performance.now()) / 1000)}s` : '')
+      // Revenge: while the mom who knocked you out waits in this same line
+      const rv = G.revenge
+      const target = rv && performance.now() < rv.until ? rosterOf(rv.sid) : null
+      if (target && target.line === q.kind && !target.away) hud.revenge(`Revenge on ${rv.name}`, PRICES.revenge, buyRevenge)
+      else hud.revenge(null)
       hud.info(`#${i + 1} in line`, (q.hasBots ? `about ${hud.fmt(q.eta())} to go` : ahead) + shields)
       hud.action('Cut Line', PRICES.cutLine, buyCutLine)
       queueIncome += dt
@@ -947,6 +1023,7 @@ export function createGame(ctx) {
       return
     }
     if (!spend(PRICES.cutLine)) return
+    missionsDone(track('cutLine'))
     const { moved, past } = q.cutLine(QUEUE.cutLinePlaces)
     cutLineOnServer(q.kind, past) // online: past the real moms among them too
     sound.speedUp()
@@ -971,7 +1048,10 @@ export function createGame(ctx) {
     }
     cam.shake = 0.4
   }
+  let rainSoundT = 0
+  let dayClock = 0
   G.onKey = (code) => {
+    if (code === 'KeyE' && G.nearShelf) return void hud.onDex?.()
     if (code === 'KeyE' && G.state === 'queue') buyKill()
   }
   async function buyKillAll() {
@@ -1013,8 +1093,9 @@ export function createGame(ctx) {
   hud.onUpgrades = () => {
     sound.pop()
     hud.upgrades(
-      () => upgView(save),
+      () => ({ ...upgView(save), decor: DECOR.map((d) => ({ ...d, owned: save.decor.includes(d.id), afford: save.coins >= d.price })) }),
       (id) => {
+        if (id.startsWith('decor:')) return buyDecor(id.slice(6))
         const price = canBuy(save, id)
         if (!price) {
           sound.error()
@@ -1032,6 +1113,7 @@ export function createGame(ctx) {
         fx.burst(V(pp.x, pp.y + 1.4, pp.z), ['#7fd8ff', '#ffffff', '#ffe14d', '#b47bff'], { count: 24, speed: 4, size: 0.4 })
         fx.ring(V(pp.x, pp.y + 0.15, pp.z), '#7fd8ff', 2.4, 0.7)
         refreshUpg()
+        missionsDone(track('upgrade'))
         return lvl
       },
     )
@@ -1147,6 +1229,89 @@ export function createGame(ctx) {
     fx.dust(V(pp.x - v.x * 0.03, pp.y + 0.02, pp.z - v.z * 0.03), { count: 2 + Math.floor(lvl / 2), color: '#8fcfff', size: 0.42, speed: 0.6, life: 0.7 })
     if (Math.random() < 0.25 * lvl) fx.glow.spawn(pp.x - v.x * 0.02, pp.y + 0.15, pp.z - v.z * 0.02, (Math.random() - 0.5) * 0.8, 0.9, (Math.random() - 0.5) * 0.8, { color: '#7fe0ff', size: 0.28, size1: 0, life: 0.55, drag: 1.5 })
   }
+
+  // --- Daily Reward calendar + daily missions (daily.js, missions.js): coins only ---
+  const refreshDailyBtn = () => hud.setDaily({ alert: dailyReady() + missionsReady() })
+  function missionsDone(list) {
+    if (!list?.length) return refreshDailyBtn()
+    for (const m of list) {
+      sound.success()
+      hud.announce(`✅ <b>Mission complete!</b> ${m.text} · claim it in 📅 Daily`, '#6dff8a')
+    }
+    refreshDailyBtn()
+  }
+  hud.onDaily = () => {
+    sound.pop()
+    hud.daily(
+      () => ({ ...dailyView(), missions: missionsView() }),
+      async (kind, i) => {
+        let coins = 0
+        if (kind === 'day') {
+          const prize = await claimDay(i)
+          if (!prize) return 0
+          coins = prize.coins
+          if (prize.swaddles) {
+            save.swaddles += prize.swaddles
+            hud.toast('🍀 Lucky Swaddle! Your next baby is Rare or better', '#7fe39e')
+          }
+        } else if (kind === 'm') coins = claimMission(i)
+        else if (kind === 'bonus') coins = claimBonus()
+        if (!coins) return 0
+        addCoins(coins)
+        sound.levelUp(kind === 'bonus' ? 4 : 2)
+        const pp = player.renderPosition
+        fx.sparkle(V(pp.x, pp.y + 1.3, pp.z), { count: 30, color: '#ffe27a', speed: 3 })
+        refreshDailyBtn()
+        return coins
+      },
+    )
+  }
+  onDailyChange(refreshDailyBtn)
+  let dayNow = today()
+  let dailyAutoShown = false
+  // At home: the calendar opens by itself once a session when a day is waiting; then one nudge.
+  function homeHints() {
+    if (G.state !== 'walk1') return
+    if (!dailyAutoShown && dailyReady() > 0) {
+      dailyAutoShown = true
+      hud.onDaily()
+      return
+    }
+    const tip = nextNudge(save)
+    if (tip) {
+      sound.chime()
+      hud.announce(tip, '#7fd8ff')
+    }
+  }
+
+  // --- the nursery at home (decor.js): Babydex bookshelf, play mat, decorations (Nursery tab) ---
+  nursery = buildNursery(home.group ?? scene, sound)
+  function refreshNursery() {
+    nursery.setOwned(save.decor)
+    nursery.setBooks(Object.keys(save.dex).filter((k) => save.dex[k].n > 0))
+  }
+  refreshNursery()
+  function buyDecor(id) {
+    const d = DECOR.find((x) => x.id === id)
+    if (!d || save.decor.includes(id)) return 0
+    if (!spend(d.price, true)) return 0
+    save.decor.push(id)
+    persist()
+    refreshNursery()
+    sound.levelUp(3)
+    hud.toast(`${d.icon} ${d.name} is in your nursery at home!`, '#ffd9f0')
+    missionsDone(track('decor'))
+    return 1
+  }
+
+  // Another mom's rare baby: a banner for everyone in the room.
+  onBragged(({ from, type, shiny }) => {
+    const t = BABY_TYPES.find((x) => x.id === type)
+    if (!t) return
+    const rar = RARITIES[t.rarity]
+    sound.announce()
+    hud.announce(`🌟 <b>${String(from).replace(/[<>&]/g, '')}</b> just delivered ${shiny ? 'a ✨SHINY✨' : /^[AEIOU]/.test(rar.name) ? 'an' : 'a'} ${rar.name} ${t.emoji} ${t.name}!`, rar.color)
+  })
 
   // --- Babydex (dex.js): the collection book; its rewards are coins ---
   const refreshDex = () => hud.setDex({ found: dexFound(save), total: DEX_TOTAL, alert: dexView(save).claimable })
@@ -1280,7 +1445,7 @@ export function createGame(ctx) {
     }
     await say(R, "You're all checked in! Head to the waiting room.")
     addCoins(REWARDS.phase)
-    await enterRoom('waiting')
+    await enterRoom(nextRoom('lobby'))
   }
 
   async function heartbeatScene() {
@@ -1307,7 +1472,7 @@ export function createGame(ctx) {
     addCoins(REWARDS.answer)
     await say(N, ['Love that energy! Go get it, mama!', "Totally normal! You've got this. 💗", 'Snacks after class, I promise! 🍪'][Math.max(0, c)])
     addCoins(REWARDS.phase)
-    await enterRoom('breathing')
+    await enterRoom(nextRoom('waiting'))
   }
 
   async function breathingScene() {
@@ -1325,7 +1490,9 @@ export function createGame(ctx) {
     setMusic('calm')
     const ui = hud.breathing()
     const total = BREATHING.breaths
-    const cycle = BREATHING.cycle
+    const style = BREATHING_STYLES[Math.floor(Math.random() * BREATHING_STYLES.length)] // a different class each trip
+    const cycle = style.cycle
+    hud.toast(`🧘 Today's class: ${style.name}`, '#c8f7e6')
     let good = 0
     let pressed = false
     let lastPhase = 0
@@ -1344,6 +1511,7 @@ export function createGame(ctx) {
         sound.perfect()
         fx.sparkle(V(player.renderPosition.x, 2, player.renderPosition.z), { count: 20, color: '#c8f7e6' })
         addCoins(REWARDS.breath + 1)
+        missionsDone(track('perfect'))
       } else if (off < BREATHING.goodWindow + 0.18) {
         good++
         ui.feedback('GOOD!', 'good')
@@ -1398,7 +1566,7 @@ export function createGame(ctx) {
     hud.subtitle(null)
     hud.cinema(false)
     addCoins(REWARDS.phase)
-    await enterRoom('ultrasound')
+    await enterRoom(nextRoom('breathing'))
   }
   let breathTick = null
 
@@ -1423,12 +1591,26 @@ export function createGame(ctx) {
     card.remove()
     await say(T, 'Everything looks perfect! Off to the final line!')
     addCoins(REWARDS.phase)
-    await enterRoom('final')
+    await enterRoom(nextRoom('ultrasound'))
   }
 
   // ======================================================================================
   // DELIVERY
   // ======================================================================================
+  const QUIZ_BANK = [
+    ['How are you feeling right now?', ['Excited!', 'A little scared', 'Ready to rock!']],
+    ["Who's the first person you'll call?", ['Grandma!', 'My best friend', 'EVERYONE!!']],
+    ['Favourite lullaby style?', ['Soft & sleepy', 'Pop hits 🎤', 'Silly songs']],
+    ["Diaper duty: who's on it?", ['Me, of course!', 'Pip the pet 🐝', 'Rock-paper-scissors']],
+    ["What's baby's first outfit?", ['Tiny onesie', 'Dino costume 🦖', 'A little tuxedo']],
+    ['Pick a nursery colour!', ['Sunny yellow', 'Mint green', 'Rainbow everything']],
+    ["Baby's first word will be...", ['Mama!', 'Pip!', 'Snack!']],
+    ['Best way to calm a crying baby?', ['Gentle rocking', 'A silly song', 'A car ride']],
+    ['Which snack got you through?', ['Pickles & ice cream', 'Toast', 'Everything!']],
+    ['Favourite bedtime story?', ['The Sleepy Moon', 'Three Little Ducks', 'Make one up!']],
+    ['How many photos will you take today?', ['Ten', 'A hundred', 'My phone will be FULL']],
+    ['Choose a baby superpower!', ['Sleeping all night', 'Instant giggles', 'Never-sticky hands']],
+  ]
   async function startDelivery() {
     G.state = 'delivery'
     player.frozen = true
@@ -1457,18 +1639,19 @@ export function createGame(ctx) {
     await hud.fade(0, 500)
     const D = 'Doctor'
     await say(D, "Hi mama! I'm Dr. Bloom. A few quick questions before we meet your baby!")
-    const QUIZ = [
-      ['How are you feeling right now?', ['Excited!', 'A little scared', 'Ready to rock!']],
-      ["Who's the first person you'll call?", ['Grandma!', 'My best friend', 'EVERYONE!!']],
-      ['Favourite lullaby style?', ['Soft & sleepy', 'Pop hits 🎤', 'Silly songs']],
-      ["Diaper duty: who's on it?", ['Me, of course!', 'Pip the pet 🐝', 'Rock-paper-scissors']],
-      ['Ready to meet your little one?', ['SO ready!!', 'Can we wait a bit?', 'Born ready!']],
-    ]
+    // Five questions from the bank, different each trip; the last one is always the big one.
+    const bank = [...QUIZ_BANK].sort(() => Math.random() - 0.5).slice(0, 4)
+    const QUIZ = [...bank, ['Ready to meet your little one?', ['SO ready!!', 'Can we wait a bit?', 'Born ready!']]]
+    let answered = 0
     for (let i = 0; i < QUIZ.length; i++) {
       const [q, opts] = QUIZ[i]
       const c = await hud.dialogue({ speaker: D, text: `Q${i + 1} of ${QUIZ.length}: ${q}`, choices: opts.map((label) => ({ label })), time: DIALOGUE.quizTime, fallback: 0, color: 'green' })
-      if (c >= 0) addCoins(REWARDS.answer)
+      if (c >= 0) {
+        addCoins(REWARDS.answer)
+        answered++
+      }
     }
+    if (answered === QUIZ.length) missionsDone(track('quizAll'))
     await say(D, "Here we go! When I say push... PUSH! 💪", { time: 2.4 })
     await laborScreen()
     await reveal()
@@ -1507,8 +1690,17 @@ export function createGame(ctx) {
   let laborTick = null
 
   // One delivered baby: { name, type, shiny?, pity? } (pity: the Babydex pity timer made it Epic+).
-  const rollBaby = (name, pity = false) => {
-    const b = { name, type: rollBabyType(Math.random, { minRarity: pity ? DEX.pityRarity : 0, luck: luck(save) }).id }
+  const rollBaby = (name, pity = false, swaddle = false) => {
+    // A limited (seasonal) baby now and then while one is in season, unless a Rare+ is guaranteed.
+    const seasonal = !pity && !swaddle ? seasonalNow(new Date(nowMs()).getUTCMonth()) : []
+    if (seasonal.length && Math.random() < SEASONAL.chance) {
+      const b = { name, type: seasonal[Math.floor(Math.random() * seasonal.length)].id }
+      if (Math.random() < DEX.shinyChance) b.shiny = true
+      return b
+    }
+    const minRarity = Math.max(pity ? DEX.pityRarity : 0, swaddle ? DAILY.swaddleRarity : 0)
+    const b = { name, type: rollBabyType(Math.random, { minRarity, luck: luck(save) }).id }
+    if (swaddle) b.swaddle = true
     if (Math.random() < DEX.shinyChance) b.shiny = true
     if (pity) b.pity = true
     return b
@@ -1517,7 +1709,13 @@ export function createGame(ctx) {
     const room = rooms.delivery
     const count = save.twins ? 2 : 1
     const names = [trip.name, ...pickNames(3).filter((n) => n !== trip.name)].slice(0, count)
-    let babies = names.map((name, i) => rollBaby(name, pityDue(save, i)))
+    // A Lucky Swaddle (day-7 Daily Reward) makes the first baby Rare or better.
+    const swaddle = save.swaddles > 0
+    if (swaddle) {
+      save.swaddles--
+      persist()
+    }
+    let babies = names.map((name, i) => rollBaby(name, pityDue(save, i), swaddle && i === 0))
     setBelly(false)
     standAt(room.standSpot.x, room.standSpot.z, 0)
     G.avatarInput.pose = null
@@ -1555,7 +1753,7 @@ export function createGame(ctx) {
         const isNew = isNewType(save, type.id)
         const proud = babyCoinMult(save)
         const gain = Math.round((type.coins * (b.shiny ? DEX.shinyCoins : 1) + (isNew ? type.coins * DEX.newBonus : 0)) * proud)
-        hud.title(`IT'S ${article} ${kind}!`, b.pity ? 'Lucky streak! Guaranteed Epic or better' : '', {
+        hud.title(`IT'S ${article} ${kind}!`, b.pity ? 'Lucky streak! Guaranteed Epic or better' : b.swaddle ? '🍀 Lucky Swaddle: Rare or better!' : type.season ? '🍂 A limited-time baby!' : '', {
           color: 'blue',
           tag: b.shiny ? `✨ SHINY ${rar.name} ✨` : rar.name,
           tagColor: b.shiny ? '#ffd23a' : rar.color,
@@ -1575,6 +1773,7 @@ export function createGame(ctx) {
           bonus: [isNew ? 'NEW BABY BONUS!' : b.shiny ? 'SHINY BONUS!' : '', proud > 1 ? `PROUD PARENT +${Math.round((proud - 1) * 100)}%` : ''].filter(Boolean).join(' · '),
           price: PRICES.newBaby,
           isNew,
+          double: !net.connected || adWait() <= 0 ? 'x2 Coins' : null,
         })
         if (res === 'again' && spend(PRICES.newBaby)) {
           babies[i] = rollBaby(b.name)
@@ -1585,6 +1784,11 @@ export function createGame(ctx) {
         }
         // Kept (or the re-roll was not affordable): coins, then into the Babydex.
         addCoins(gain)
+        if (res === 'double' && (await playRewardedAd())) {
+          addCoins(gain) // the ad doubled this baby's coins
+          sound.fanfare()
+          hud.toast(`DOUBLED! +${gain} more coins`, '#ffe14d')
+        }
         if (proud > 1) {
           // Proud Parent: a fountain of gold coins bursting up from the baby.
           const c = room.standSpot
@@ -1604,9 +1808,13 @@ export function createGame(ctx) {
         }
         recordBaby(save, b)
         if (isNew) hud.toast(`📖 New in your Babydex! ${dexFound(save)}/${DEX_TOTAL}`, '#bfe6ff')
+        // Everyone in the room hears about an Epic+ (or shiny / limited) baby.
+        if (type.rarity >= 3 || b.shiny) sendBrag(type.id, type.rarity, b.shiny)
+        missionsDone([...track('baby'), ...(type.rarity >= 2 ? track('rare') : []), ...(isNew ? track('newdex') : [])])
       }
     }
     save.babies.push(...babies.map(({ name, type, shiny }) => (shiny ? { name, type, shiny } : { name, type })))
+    missionsDone([...(!trip.usedSpeed ? track('calmTrip') : []), ...(trip.event ? track('tripEvent') : [])])
     save.trips++
     save.delivered += babies.length
     persist()
@@ -1713,7 +1921,7 @@ export function createGame(ctx) {
   // What the others draw of you (main.js presence source).
   G.presence = () => ({
     anim: G.state === 'ko' ? 'ko' : ANIM_OF.get(G.avatarInput.pose) ?? '',
-    trip: { zone: G.zone(), hold: G.queue?.hold ?? '', belly: bellyOn, twins: !!save.twins, carry: carryText },
+    trip: { zone: G.zone(), hold: G.queue?.hold ?? '', belly: bellyOn, twins: !!save.twins, carry: carryText, dex: dexFound(save) },
   })
   // The line you stand in right now ('' = none), for the server's order (net.wantLine).
   G.lineKind = () => (G.state === 'queue' && G.queue?.inLine ? G.queue.kind : '')
@@ -1721,9 +1929,30 @@ export function createGame(ctx) {
   // Another mom's Kill / Kill All (net.onTrolled). Kill: aimed at your session. Kill All: everyone
   // ahead of her in that line, i.e. with a lower server ticket than hers.
   G.onTrolled = ({ id, from, sid, text }) => {
+    // Our Kill was blocked by her shield or her protection: "<our session>|<kill | killAll>".
+    if (id === 'blocked') {
+      const [to, kind, why] = text.split('|')
+      if (to !== mySession()) return
+      if (kind === 'kill') addCoins(PRICES.kill) // a blocked single Kill is refunded
+      hud.toast(why === 'shield' ? `🛡️ ${from}'s shield blocked your Kill!${kind === 'kill' ? ' (refunded)' : ''}` : `😇 ${from} is protected right now!${kind === 'kill' ? ' (refunded)' : ''}`, '#bfefff')
+      return
+    }
     const q = G.queue
     if (G.state !== 'queue' || !q?.inLine) return
-    const hit = () => (G.shields > 0 ? shieldBlock(from) : knockedOut(from))
+    const hit = () => {
+      // just back from a knockout: protected for a while (KILLS.grace)
+      if (performance.now() < G.immuneUntil) {
+        sendTroll('blocked', `${sid}|${id}|grace`)
+        hud.toast(`😇 ${from} tried to Kill you, but you're protected!`, '#bfefff')
+        return
+      }
+      if (G.shields > 0) {
+        shieldBlock(from)
+        sendTroll('blocked', `${sid}|${id}|shield`)
+        return
+      }
+      knockedOut(from, sid)
+    }
     if (id === 'kill' && text === mySession()) return void hit()
     if (id === 'killAll' && text === q.kind) {
       const by = rosterOf(sid)
@@ -1732,7 +1961,10 @@ export function createGame(ctx) {
   }
   // Knocked out of the line: down on the floor, Boxity's death screen, then back at the room's
   // entrance to queue again from the start.
-  async function knockedOut(from) {
+  G.immuneUntil = 0
+  G.revenge = null // { sid, name, until }: who knocked you out, for the Revenge button
+  async function knockedOut(from, sid = '') {
+    if (sid) G.revenge = { sid, name: from, until: performance.now() + KILLS.revengeFor * 1000 }
     const q = G.queue
     if (!q?.kickOut()) return
     const room = G.room
@@ -1757,7 +1989,22 @@ export function createGame(ctx) {
     hud.setGameplay(true)
     hud.showSkipEnd(true)
     setWaypoint(room.joinAt, 'Line')
-    hud.toast('Back to the end of the line!', '#ffffff')
+    // a little something for your trouble, and a while of protection back in line
+    addCoins(KILLS.compensation)
+    G.immuneUntil = performance.now() + KILLS.grace * 1000
+    hud.toast(`Back in line: +${KILLS.compensation} coins and ${KILLS.grace}s of protection 😇`, '#ffffff')
+  }
+  function buyRevenge() {
+    const r = G.revenge
+    if (!r || !G.queue?.inLine) return
+    if (!canTroll()) return void hud.toast('Catch your breath... one second!', '#ffd0ff')
+    if (!spend(PRICES.revenge)) return
+    sendTroll('kill', r.sid)
+    G.revenge = null
+    hud.revenge(null)
+    sound.poof()
+    cam.shake = 0.5
+    hud.toast(`😤 Revenge on ${r.name}!`, '#ffb3c0')
   }
 
   // Rewarded ad (the Free Coins button): coins only once the backend has verified the reward token
@@ -1766,40 +2013,44 @@ export function createGame(ctx) {
   // out, so a watched ad is never refused.
   let adBusy = false
   let adClaimedAt = -1e9
-  G.watchAd = async () => {
-    if (adBusy) return
-    const wait = Math.ceil(ADS.reward.cooldown - (performance.now() - adClaimedAt) / 1000)
-    if (net.connected && wait > 0) {
-      hud.toast(`Next free coins in ${wait}s!`, '#ffd0d0')
-      return
+  // Plays one rewarded ad (verified by the backend when online): true when it may be paid out.
+  const adWait = () => Math.ceil(ADS.reward.cooldown - (performance.now() - adClaimedAt) / 1000)
+  async function playRewardedAd() {
+    if (adBusy) return false
+    if (net.connected && adWait() > 0) {
+      hud.toast(`Next ad in ${adWait()}s!`, '#ffd0d0')
+      return false
     }
     adBusy = true
     try {
       const r = await showRewarded(ADS.reward.placement)
       if (r.status !== 'completed') {
         if (r.status !== 'skipped') hud.toast('No ad available right now. Try again later!', '#ffd0d0')
-        return
+        return false
       }
-      let coins = ADS.reward.coins
       if (net.connected) {
         const v = await claimAdReward(r.rewardToken)
         if (v.ok || v.reason === 'cooldown') adClaimedAt = performance.now()
         if (!v.ok) {
           hud.toast(v.reason === 'cooldown' ? 'One ad a minute! Try again soon.' : 'That ad reward could not be verified.', '#ffd0d0')
-          return
+          return false
         }
-        coins = v.coins ?? coins
-      }
-      addCoins(coins)
-      sound.fanfare()
-      hud.toast(`+${coins} COINS!`, '#ffe14d')
+      } else adClaimedAt = performance.now()
+      return true
     } finally {
       adBusy = false
     }
   }
+  G.watchAd = async () => {
+    if (!(await playRewardedAd())) return
+    const coins = ADS.reward.coins
+    addCoins(coins)
+    sound.fanfare()
+    hud.toast(`+${coins} COINS!`, '#ffe14d')
+  }
 
   // dev: jump to a phase from the console
-  G.debug = { wearCharacter: (c) => setDevCharacter(c), enterRoom, startDelivery, arriveHospital, startRide, save, introLoop, breathingScene: async () => { await enterRoom('breathing'); breathingScene() } }
+  G.debug = { wearCharacter: (c) => setDevCharacter(c), enterRoom, startDelivery, arriveHospital, startRide, save, trip, introLoop, breathingScene: async () => { await enterRoom('breathing'); breathingScene() } }
 
   G.update = (dt, t) => {
     hud.tick(dt)
@@ -1807,6 +2058,62 @@ export function createGame(ctx) {
     for (const b of cribBabies) b.userData.animate?.(t)
     updateBubbles(dt)
     updateShoesTrail(dt)
+    nursery.update(dt, t, player.renderPosition)
+    if (G.state !== 'queue') hud.revenge(null)
+    // rain (trip event) on the street, the ride and the hospital forecourt
+    const raining = trip.event === 'rain' && ['walk1', 'ride', 'walk2'].includes(G.state)
+    if (raining !== G.raining) hud.weather((G.raining = raining))
+    {
+      const pp = player.renderPosition
+      const around = G.state === 'ride' ? camera.position : { x: pp.x, y: pp.y, z: pp.z }
+      const moving = Math.hypot(player.velocity.x, player.velocity.z) > 2
+      // never under a roof: the house (with its walls) and the ambulance body
+      const ar = ambulance.root.position
+      const exclude = (x, z) => (x > ROOM.x0 - 0.6 && x < ROOM.x1 + 0.6 && z > ROOM.z0 - 0.6 && z < ROOM.z1 + 0.6) || (Math.abs(x - ar.x) < 5.5 && Math.abs(z - ar.z) < 1.9)
+      rain.update(dt, around, { on: raining, splashAt: moving && G.state !== 'ride' && !exclude(pp.x, pp.z) ? pp : null, exclude })
+    }
+    if (raining) {
+      rainSoundT -= dt
+      if (rainSoundT <= 0) {
+        rainSoundT = 1.4
+        sound.rain()
+      }
+    }
+    // a new UTC day while playing: fresh missions, a new calendar day
+    dayClock -= dt
+    if (dayClock <= 0) {
+      dayClock = 20
+      const d = today()
+      if (d !== dayNow) {
+        dayNow = d
+        ensureToday()
+        refreshDaily()
+      }
+      refreshDailyBtn()
+    }
+    // the Babydex bookshelf at home: walk up to it to open the book
+    if (G.state === 'walk1' && !player.frozen) {
+      const pp = player.renderPosition
+      const sh = nursery.bookshelf
+      const near = Math.hypot(pp.x - sh.x, pp.z - sh.z) < 1.6
+      if (near) {
+        const a = hud.anchor('shelf', `<button class="prompt"><span class="key">E</span>📖 Babydex</button>`, '')
+        if (!a._wired) {
+          a._wired = true
+          a.querySelector('button').addEventListener('pointerdown', (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            hud.onDex?.()
+          })
+        }
+        const s = ctx.project(V(sh.x, 2.5, sh.z))
+        hud.place('shelf', s.x, s.y, s.visible)
+      } else hud.removeAnchor('shelf')
+      G.nearShelf = near
+    } else if (G.nearShelf) {
+      G.nearShelf = false
+      hud.removeAnchor('shelf')
+    }
     home.update(dt)
     for (const k in staff) {
       const s = staff[k]

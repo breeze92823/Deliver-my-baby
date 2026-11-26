@@ -6,12 +6,15 @@
 // BABIES_MAX), trips (hospital trips finished), delivered (babies delivered in total), dex (the
 // Babydex: { [typeId]: { n, s } } babies of each type ever delivered / shiny, never cut like babies),
 // dexClaimed (Babydex rewards taken: "t:<type>:<tier>", "r:<rarity>", "all") and pity (deliveries
-// since the last Epic or better baby) and upg (permanent upgrades: { [id]: level }, upgrades.js).
+// since the last Epic or better baby), upg (permanent upgrades: { [id]: level }, upgrades.js), earned
+// (lifetime coins earned, only goes up), swaddles (Lucky Swaddle tokens), decor (nursery items owned),
+// missions (today's daily missions, missions.js) and dailyLocal (the Daily Reward calendar for guests /
+// offline play; signed-in players keep it on the server).
 import { START_COINS } from './config.js'
 
 const KEY = 'dmb.save.v1'
 const BABIES_MAX = 300 // backend constants.ts BABIES_MAX
-const defaults = () => ({ coins: START_COINS, twins: false, babies: [], trips: 0, delivered: 0, dex: {}, dexClaimed: [], pity: 0, upg: {} })
+const defaults = () => ({ coins: START_COINS, twins: false, babies: [], trips: 0, delivered: 0, dex: {}, dexClaimed: [], pity: 0, upg: {}, earned: 0, swaddles: 0, decor: [], missions: null, dailyLocal: null })
 
 const data = defaults()
 const listeners = new Set()
@@ -86,6 +89,11 @@ export const store = {
       dexClaimed: data.dexClaimed,
       pity: data.pity,
       upg: data.upg,
+      earned: data.earned,
+      swaddles: data.swaddles,
+      decor: data.decor,
+      missions: data.missions,
+      dailyLocal: data.dailyLocal,
     }
   },
   // Loads a saved doc (server or browser) over the defaults; listeners get { type: 'hydrate' }.
@@ -101,6 +109,11 @@ export const store = {
     data.dexClaimed = claimList(src.dexClaimed)
     data.pity = int(src.pity)
     data.upg = upgFrom(src.upg)
+    data.earned = Math.max(int(src.earned), data.coins) // an old save: at least what it holds
+    data.swaddles = int(src.swaddles)
+    data.decor = Array.isArray(src.decor) ? [...new Set(src.decor.filter((d) => typeof d === 'string'))] : []
+    data.missions = src.missions && typeof src.missions === 'object' ? src.missions : null
+    data.dailyLocal = src.dailyLocal && typeof src.dailyLocal === 'object' ? src.dailyLocal : null
     emit({ type: 'hydrate' })
   },
   // A browser save, or null. `key` = KEY (guests / no server) or a per-account mirror (net.js).

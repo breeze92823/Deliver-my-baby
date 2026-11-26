@@ -12,8 +12,8 @@ distDir: dist
 - **canDie**: yes. Another mom's Kill / Kill All knocks you out of the line; the knockout shows Boxity's
   death screen and you get up (at the room's entrance) when its countdown allows (`bloxity.deathScreen()`,
   `game.js` `knockedOut`).
-- **hasScore**: yes. Leaderboards `babies` (Babies Delivered), `trips` (Hospital Trips) and `coins`
-  (Richest Moms) are declared by the client (`LEADERBOARDS` in `src/config.js`) and submitted by the game
+- **hasScore**: yes. Leaderboards `babies` (Babies Delivered), `babies_week` (Babies This Week, weekly sum), `trips`
+  (Hospital Trips), `earned` (Top Earners) and `coins` (Richest Moms) are declared by the client (`LEADERBOARDS` in `src/config.js`) and submitted by the game
   server for verified accounts (`../Deliver-my-baby-backend/src/bloxity.ts`).
 - **rewards**: yes. The Free Coins button plays a rewarded ad (`ADS.reward`); the game server verifies the
   reward token with Bloxity before the coins are granted.
@@ -23,5 +23,5 @@ distDir: dist
 - Every player in a room is drawn as a fellow mom, and the lines hold real players only; just the hospital
   staff are bots.
 - No Gems: nothing in the game is bought with premium currency. Everything costs in-game coins.
-- **Badges**: 9 milestone badges (`BADGES` in the backend `constants.ts`, incl. two Babydex ones) are declared once and awarded by the
+- **Badges**: 14 milestone badges (`BADGES` in the backend `constants.ts`: babies, trips, coins, Babydex, shinies, lifetime coins earned) are declared once and awarded by the
   game server from the tracked babies / trips / coins (`awardBadges` in `../Deliver-my-baby-backend/src/bloxity.ts`).

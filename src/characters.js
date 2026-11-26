@@ -513,7 +513,20 @@ export const BABY_TYPES = [
   // LEGENDARY
   { id: 'golden', name: 'Golden Baby', rarity: 4, swaddle: '#ffcf3a', metal: true, emoji: '✨', quote: 'A one-in-a-million miracle! {n} is solid gold!', coins: 150 },
   { id: 'cosmic', name: 'Cosmic Baby', rarity: 4, swaddle: '#2a1a5e', glow: '#3a1a8a', emoji: '🌌', quote: '{n} has a whole galaxy twinkling inside!', coins: 150 },
+  // LIMITED: only born in their `season` (UTC months, 0 = January), SEASONAL.chance of a delivery then.
+  // Not part of the core Babydex count (DEX_TOTAL).
+  { id: 'pumpkin', name: 'Pumpkin Baby', rarity: 5, season: [9, 10], swaddle: '#ff8a2a', emoji: '🎃', quote: '{n} is the cutest pumpkin in the patch!', coins: 120 },
+  { id: 'snow', name: 'Snowflake Baby', rarity: 5, season: [11, 0], swaddle: '#e8f4ff', emoji: '❄️', quote: '{n} arrived with the first snow. Brrr-illiant!', coins: 120 },
+  { id: 'heart', name: 'Sweetheart Baby', rarity: 5, season: [1], swaddle: '#ff6f9a', emoji: '💝', quote: '{n} stole every heart in the room!', coins: 120 },
+  { id: 'beach', name: 'Beach Baby', rarity: 5, season: [6, 7], swaddle: '#ffd86b', emoji: '🏖️', quote: 'Surf is up! {n} is ready for summer.', coins: 120 },
 ]
+// Limited babies: how often one replaces a normal delivery while in season.
+export const SEASONAL = { chance: 0.08 }
+export const isLimited = (t) => Array.isArray(t?.season)
+export const inSeason = (t, month = new Date().getUTCMonth()) => isLimited(t) && t.season.includes(month)
+export const seasonalNow = (month) => BABY_TYPES.filter((t) => inSeason(t, month))
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+export const seasonText = (t) => (isLimited(t) ? t.season.map((m) => MONTHS[m]).join(' & ') : '')
 export const babyType = (id) => BABY_TYPES.find((b) => b.id === id) ?? null
 export const RARITIES = [
   { name: 'COMMON', color: '#9aa4b2', weight: 46 },
@@ -521,10 +534,11 @@ export const RARITIES = [
   { name: 'RARE', color: '#4aa8ff', weight: 16 },
   { name: 'EPIC', color: '#b45cff', weight: 8 },
   { name: 'LEGENDARY', color: '#ffb020', weight: 2 },
+  { name: 'LIMITED', color: '#ff6a3d', weight: 0 }, // seasonal babies only (never rolled by weight)
 ]
 // The rarity weights at a Lucky Charm level: each level moves LUCK_SHIFT of weight off Common onto
 // the rarer tiers (the total stays 100).
-const LUCK_SHIFT = [-3, 0, 1.5, 1, 0.5]
+const LUCK_SHIFT = [-3, 0, 1.5, 1, 0.5, 0]
 export const rarityWeights = (luck = 0) => RARITIES.map((r, i) => Math.max(0, r.weight + LUCK_SHIFT[i] * luck))
 // A random type by rarity weight. `minRarity` (the Babydex pity timer) rolls only among that rarity
 // and above, by their own weights; `luck` = the Lucky Charm level.
@@ -573,6 +587,55 @@ const roundEars = (hat, outer, inner) => {
   }
 }
 const BABY_EXTRAS = {
+  pumpkin(hat) {
+    bm(hat, BASE.cyl, bmat('#5a7a2a', 0.8), 0, 0.03, 0, 0.014, 0.06, 0.014, 0, 0, -0.3) // stem
+    bm(hat, BASE.sphere, bmat('#4fb34a', 0.7), -0.02, 0.05, 0.03, 0.045, 0.008, 0.025, 0.4, 0.6, 0) // leaf
+    const vine = bmat('#3f8a3a', 0.8)
+    bm(hat, BASE.torus, vine, 0.02, 0.06, -0.02, 0.018, 0.018, 0.02, 0.6, 0, 0) // curly vine
+  },
+  snow(hat, g, anim) {
+    const knit = bmat('#6fb7ff', 0.95)
+    bm(hat, BASE.sphere, knit, -0.02, -0.02, 0, 0.1, 0.07, 0.1) // beanie
+    bm(hat, BASE.torus, bmat('#ffffff', 0.95), -0.005, -0.055, 0, 0.098, 0.098, 0.12, Math.PI / 2, 0, -0.25) // cuff
+    const pom = bm(hat, BASE.sphereLo, bmat('#ffffff', 0.95), -0.04, 0.06, 0, 0.035)
+    const flake = bmat('#dff3ff', 0.2, { emissive: '#bfe6ff', emissiveIntensity: 0.9 })
+    const flakes = [[-0.2, 0.32, 0.1], [0.1, 0.4, -0.12], [-0.05, 0.48, 0.05]].map(([x, y, z]) => bm(g, SPARKLE_GEO, flake, x, y, z, 0.016))
+    anim.push((t) => {
+      pom.position.y = 0.06 + Math.sin(t * 3) * 0.004
+      flakes.forEach((f, i) => {
+        const k = (t * 0.18 + i / 3) % 1 // drifting down
+        f.position.y = 0.5 - k * 0.3
+        f.rotation.y = t * 2 + i
+        f.scale.setScalar(0.016 * Math.min(1, k * 5) * Math.min(1, (1 - k) * 5) + 0.0001)
+      })
+    })
+  },
+  heart(hat, g, anim) {
+    // little hearts (two spheres + a cone each) rising above the baby
+    const red = bmat('#ff3d6e', 0.4, { emissive: '#ff2050', emissiveIntensity: 0.25 })
+    const hearts = [0, 1, 2].map((i) => {
+      const h = new Group()
+      for (const sx of [-1, 1]) bm(h, BASE.sphereLo, red, sx * 0.012, 0.01, 0, 0.015)
+      bm(h, BASE.cone, red, 0, -0.012, 0, 0.07, 0.03, 0.07, Math.PI, 0, 0) // the point, upside down
+      g.add(h)
+      return { h, x: -0.15 + i * 0.12, ph: i / 3 }
+    })
+    anim.push((t) => {
+      for (const o of hearts) {
+        const k = (t * 0.25 + o.ph) % 1
+        o.h.position.set(o.x + Math.sin(t * 2 + o.ph * 7) * 0.02, 0.24 + k * 0.28, 0.02)
+        o.h.scale.setScalar(Math.max(0.0001, Math.min(1, k * 5) * Math.min(1, (1 - k) * 4)))
+        o.h.rotation.y = Math.sin(t * 1.5 + o.ph * 5) * 0.6
+      }
+    })
+  },
+  beach(hat) {
+    const straw = bmat('#f2d38a', 0.9)
+    bm(hat, BASE.cyl, straw, -0.01, -0.005, 0, 0.13, 0.01, 0.13) // wide brim
+    bm(hat, BASE.sphere, straw, -0.01, 0.0, 0, 0.075, 0.045, 0.075) // crown
+    bm(hat, BASE.torus, bmat('#2fc6c6', 0.6), -0.01, 0.012, 0, 0.073, 0.073, 0.06, Math.PI / 2, 0, 0) // ribbon
+    bm(hat, BASE.sphereLo, bmat('#ff6f9a', 0.5), 0.05, 0.02, 0.05, 0.02) // a flower
+  },
   teddy: (hat) => roundEars(hat, '#8a5a32', '#f3c7a0'),
   panda: (hat) => roundEars(hat, '#222226', null),
   duckling(hat, g) {

@@ -84,7 +84,9 @@ export function createHud() {
   const botc = el('div', 'botc')
   const info = el('div', 'info hidden', `<div class="big outlined"></div><div class="small outlined"></div>`)
   const action = el('button', 'action hidden')
-  botc.append(info, action)
+  // Revenge on the mom who just knocked you out (game.js, KILLS / PRICES.revenge).
+  const revengeBtn = el('button', 'revenge hidden')
+  botc.append(info, revengeBtn, action)
   const layer = el('div') // dialogue, minigames, cards
   const skipCut = el('button', 'skip-cut hidden', 'SKIP ▶')
   const fade = el('div', 'fade')
@@ -95,8 +97,10 @@ export function createHud() {
   // Permanent upgrades (upgrades.js): a green dot counts the ones you can afford right now.
   const upgBtn = el('button', 'upg-btn', `<span class="book">⬆️</span><span class="lbl outlined">Upgrades</span><span class="dot hidden"></span>`)
   // The right-hand tool column: Babydex + Upgrades (a row on short landscape screens, under Kill All in portrait).
+  // Daily Reward calendar + daily missions (daily.js, missions.js): a dot counts what can be claimed.
+  const dailyBtn = el('button', 'daily-btn', `<span class="book">📅</span><span class="lbl outlined">Daily</span><span class="dot hidden"></span>`)
   const rtools = el('div', 'rtools')
-  rtools.append(dexBtn, upgBtn)
+  rtools.append(dailyBtn, dexBtn, upgBtn)
   root.append(world, coins, adBtn, twinsBtn, killAllBtn, topc, botc, barTop, barBot, subtitle, titleCard, rtools, layer, skipCut, babies, mute, fade)
 
   const gameplayEls = [coins, adBtn, twinsBtn, killAllBtn, topc, botc, rtools]
@@ -108,6 +112,7 @@ export function createHud() {
     onWatchAd: null,
     onDex: null,
     onUpgrades: null,
+    onDaily: null,
   }
   tap(adBtn, () => hud.onWatchAd?.())
   hud.setAdCoins = (n) => (adBtn.querySelector('.price').innerHTML = `${ICON.miniCoin}+${n}`)
@@ -116,6 +121,86 @@ export function createHud() {
   tap(skipEnd, () => hud.onSkipEnd?.())
   tap(dexBtn, () => hud.onDex?.())
   tap(upgBtn, () => hud.onUpgrades?.())
+  tap(dailyBtn, () => hud.onDaily?.())
+  let revengeFn = null
+  tap(revengeBtn, () => revengeFn?.())
+  // label = null hides it.
+  hud.revenge = (label, price, fn) => {
+    revengeBtn.classList.toggle('hidden', !label)
+    revengeFn = label ? fn : null
+    if (label) {
+      const html = `<span class="ico">😤</span><span class="outlined">${label}</span>${priceHTML(price)}`
+      if (revengeBtn._html !== html) revengeBtn.innerHTML = revengeBtn._html = html
+    }
+  }
+  hud.setDaily = ({ alert }) => {
+    const dot = dailyBtn.querySelector('.dot')
+    dot.classList.toggle('hidden', !alert)
+    dot.textContent = String(alert || '')
+  }
+
+  // --- announcements: another mom's rare baby (and trip events), a banner that slides in and out ---
+  const announceQ = []
+  let announcing = false
+  hud.announce = (html, color = '#ffd23a') => {
+    announceQ.push({ html, color })
+    if (!announcing) nextAnnounce()
+  }
+  function nextAnnounce() {
+    const a = announceQ.shift()
+    if (!a) return void (announcing = false)
+    announcing = true
+    const b = el('div', 'announce outlined', a.html)
+    b.style.setProperty('--ac', a.color)
+    layer.appendChild(b)
+    setTimeout(() => {
+      b.remove()
+      nextAnnounce()
+    }, 3600)
+  }
+
+  // --- weather: a soft overcast tint over the 3D view while it rains (trip event) ---
+  const overcast = el('div', 'overcast')
+  root.insertBefore(overcast, root.firstChild)
+  hud.weather = (rainy) => overcast.classList.toggle('on', !!rainy)
+
+  // --- flat tire: tap PUMP! fast enough before the time runs out ---
+  hud.pump = (taps, time) =>
+    new Promise((res) => {
+      const w = el('div', 'pump', `<div class="phead outlined">🛞 FLAT TIRE!</div><div class="psub outlined">Tap PUMP! ${taps} times before time runs out</div><div class="ptire"><div class="pfill"></div></div><div class="ptime"><div></div></div><button class="pgo outlined">PUMP!</button>`)
+      layer.appendChild(w)
+      let n = 0
+      const t0 = performance.now()
+      const go = () => {
+        if (done) return
+        n++
+        sound.pop()
+        w.querySelector('.pfill').style.transform = `scale(${0.35 + (0.65 * n) / taps})`
+        const b = w.querySelector('.pgo')
+        b.animate([{ transform: 'scale(0.9)' }, { transform: 'scale(1)' }], { duration: 120 })
+        if (n >= taps) finish(true)
+      }
+      let done = false
+      tap(w.querySelector('.pgo'), go)
+      const key = (e) => e.code === 'Space' && go()
+      window.addEventListener('keydown', key)
+      const tick = setInterval(() => {
+        const k = 1 - (performance.now() - t0) / (time * 1000)
+        w.querySelector('.ptime div').style.transform = `scaleX(${Math.max(0, k)})`
+        if (k <= 0) finish(false)
+      }, 50)
+      function finish(ok) {
+        if (done) return
+        done = true
+        clearInterval(tick)
+        window.removeEventListener('keydown', key)
+        w.classList.add(ok ? 'ok' : 'fail')
+        setTimeout(() => {
+          w.remove()
+          res(ok)
+        }, 700)
+      }
+    })
   tap(coins, () => sound.click())
 
   // --- gameplay HUD ---
@@ -465,7 +550,7 @@ export function createHud() {
   }
   // getView() -> dex.js dexView; onClaim(keys) -> true once the coins were paid (then redrawn).
   hud.dex = (getView, onClaim) => {
-    if (dexClose || upgClose) return
+    if (dexClose || upgClose || dailyClose) return
     document.exitPointerLock?.()
     const w = el('div', 'dexwin')
     layer.appendChild(w)
@@ -481,6 +566,7 @@ export function createHud() {
     const card = (c) =>
       `<div class="dcard${c.known ? '' : ' unknown'}${c.ready.length ? ' ready' : ''}"><div class="demo">${c.emoji}</div><div class="dname">${c.known ? c.name.replace(/ Baby$/, '') : '???'}</div>` +
       (c.known ? `<div class="dstars">${stars(c.stars)}</div><div class="dn">×${c.n}${c.s ? ` <span class="shiny">✨${c.s}</span>` : ''}</div>` : `<div class="dstars dim">${stars(0)}</div><div class="dn">&nbsp;</div>`) +
+      (c.season ? `<div class="dseason${c.season.now ? ' now' : ''}">${c.season.now ? 'In season now!' : c.season.when}</div>` : '') +
       (c.ready.length
         ? `<button class="dclaim outlined" data-claim="${c.ready.join(',')}">+${c.readyCoins}</button>`
         : c.known && c.next
@@ -496,7 +582,7 @@ export function createHud() {
         `<div class="dbar"><div style="width:${(v.found / v.total) * 100}%"></div></div>` +
         `<div class="dpity">🎁 <b style="color:${v.pityColor}">${v.pityName}</b> or better guaranteed within <b>${v.pityLeft}</b> ${v.pityLeft === 1 ? 'delivery' : 'deliveries'}</div>` +
         `<div class="dlist">` +
-        v.rows.map((r) => `<div class="drow" style="--rc:${r.color}"><div class="drowhead"><span class="rname outlined">${r.name}</span><span class="rcount">${r.found}/${r.total}</span>${pill(r.reward)}</div><div class="dgrid">${r.cards.map(card).join('')}</div></div>`).join('') +
+        v.rows.map((r) => `<div class="drow" style="--rc:${r.color}"><div class="drowhead"><span class="rname outlined">${r.name}</span><span class="rcount">${r.found}/${r.total}</span>${r.reward ? pill(r.reward) : '<span class="dreward locked">Seasonal</span>'}</div><div class="dgrid">${r.cards.map(card).join('')}</div></div>`).join('') +
         `<div class="dall"><span>🌟 Find every baby:</span>${pill(v.all)}</div>` +
         `<div class="dhint">Stars at ${'5 / 15 / 40'} babies of a kind. Every reward is coins.</div></div></div>`
       w.querySelector('.dlist').scrollTop = scroll
@@ -546,13 +632,101 @@ export function createHud() {
     if (upgClose) upgClose()
     else if (!rtools.classList.contains('hidden') && !dexClose) hud.onUpgrades?.()
   }
+  // J key: the Daily window.
+  let dailyClose = null
+  hud.dailyKey = () => {
+    if (dailyClose) dailyClose()
+    else if (!rtools.classList.contains('hidden') && !dexClose && !upgClose) hud.onDaily?.()
+  }
+  // getView() -> { days, nextIn, missions: { list, bonus } }; onClaim(kind, i) -> true once paid.
+  hud.daily = (getView, onClaim) => {
+    if (dailyClose || dexClose || upgClose) return
+    document.exitPointerLock?.()
+    const w = el('div', 'dexwin dailywin')
+    layer.appendChild(w)
+    const fmtLeft = (ms) => {
+      const m = Math.ceil(ms / 60000)
+      return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`
+    }
+    const prize = (d) => `${ICON.miniCoin}${d.coins}${d.swaddles ? '<span class="swad">+🍀 Lucky Swaddle</span>' : ''}`
+    const render = () => {
+      const v = getView()
+      const scroll = w.querySelector('.dlist')?.scrollTop ?? 0
+      w.innerHTML =
+        `<div class="box"><div class="dhead"><div class="dtitle outlined">📅 DAILY</div><button class="dclose" aria-label="Close">✕</button></div>` +
+        `<div class="dlist"><div class="dsec outlined">Login calendar</div><div class="cal">` +
+        v.days
+          .map(
+            (d) =>
+              `<div class="cday ${d.state}${d.i === v.days.length - 1 ? ' big' : ''}"><div class="cn">Day ${d.i + 1}</div><div class="cp">${prize(d)}</div>` +
+              (d.state === 'ready' ? `<button class="cclaim outlined" data-claim="day:${d.i}">CLAIM</button>` : d.state === 'done' ? '<div class="cdone">✓</div>' : '<div class="clock">🔒</div>') +
+              `</div>`,
+          )
+          .join('') +
+        `</div><div class="cnext">Next day unlocks in ${fmtLeft(v.nextIn)} · miss a day and nothing is lost</div>` +
+        `<div class="dsec outlined">Today's missions</div>` +
+        v.missions.list
+          .map(
+            (m) =>
+              `<div class="mrow ${m.state}"><div class="mtxt">${m.text}<div class="mbar"><div style="width:${(Math.min(m.prog, m.goal) / m.goal) * 100}%"></div></div><div class="mprog">${Math.min(m.prog, m.goal)} / ${m.goal}</div></div>` +
+              (m.state === 'ready' ? `<button class="cclaim outlined" data-claim="m:${m.i}">${ICON.miniCoin}${m.coins}</button>` : m.state === 'done' ? '<div class="cdone">✓</div>' : `<div class="mcoins">${ICON.miniCoin}${m.coins}</div>`) +
+              `</div>`,
+          )
+          .join('') +
+        `<div class="mrow chest ${v.missions.bonus.state}"><div class="mtxt">🎁 Bonus chest: claim all three</div>` +
+        (v.missions.bonus.state === 'ready'
+          ? `<button class="cclaim outlined" data-claim="bonus">${ICON.miniCoin}${v.missions.bonus.coins}</button>`
+          : v.missions.bonus.state === 'done'
+            ? '<div class="cdone">✓</div>'
+            : `<div class="mcoins">${ICON.miniCoin}${v.missions.bonus.coins}</div>`) +
+        `</div><div class="dhint">New missions every day. Every reward is coins.</div></div></div>`
+      w.querySelector('.dlist').scrollTop = scroll
+      tap(w.querySelector('.dclose'), close)
+    }
+    w.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-claim]')
+      if (!b || b.disabled) return
+      b.disabled = true
+      const [kind, i] = b.dataset.claim.split(':')
+      const r = b.getBoundingClientRect()
+      const ok = await onClaim(kind, i === undefined ? -1 : Number(i))
+      if (!dailyClose) return
+      if (ok) {
+        hud.floater(`+${ok}`, r.left + r.width / 2, r.top)
+        render()
+      } else {
+        b.disabled = false
+        b.animate([{ transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'none' }], { duration: 250 })
+      }
+    })
+    w.addEventListener('pointerdown', (e) => {
+      if (e.target === w) close()
+    })
+    const onKey = (e) => {
+      if (e.code === 'Escape') {
+        e.stopImmediatePropagation()
+        close()
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    function close() {
+      if (!dailyClose) return
+      dailyClose = null
+      sound.click()
+      window.removeEventListener('keydown', onKey, true)
+      w.remove()
+    }
+    dailyClose = close
+    render()
+  }
   // getView() -> upgrades.js upgView; onBuy(id) -> the new level once bought (0 = not bought).
   hud.upgrades = (getView, onBuy) => {
-    if (upgClose || dexClose) return
+    if (upgClose || dexClose || dailyClose) return
     document.exitPointerLock?.()
     const w = el('div', 'dexwin upgwin')
     layer.appendChild(w)
     let scroll = 0
+    let tab = 'upgrades'
     const pips = (lvl, max) => Array.from({ length: max }, (_, i) => `<span class="pip${i < lvl ? ' on' : ''}"></span>`).join('')
     const row = (u) =>
       `<div class="urow${u.price == null ? ' maxed' : ''}" data-id="${u.id}"><div class="uico">${u.icon}</div>` +
@@ -562,16 +736,29 @@ export function createHud() {
         ? `<span class="ubuy max outlined">MAX</span>`
         : `<button class="ubuy${u.afford ? '' : ' poor'} outlined" data-buy="${u.id}">${ICON.miniCoin}${u.price}</button>`) +
       `</div>`
+    const decorRow = (d) =>
+      `<div class="urow${d.owned ? ' maxed' : ''}" data-id="${d.id}"><div class="uico">${d.icon}</div><div class="umid"><div class="uname">${d.name}</div><div class="uabout">${d.about}</div></div>` +
+      (d.owned ? `<span class="ubuy max outlined">OWNED</span>` : `<button class="ubuy${d.afford ? '' : ' poor'} outlined" data-buy="decor:${d.id}">${ICON.miniCoin}${d.price}</button>`) +
+      `</div>`
     const render = () => {
       const v = getView()
       const list = w.querySelector('.dlist')
       if (list) scroll = list.scrollTop
       w.innerHTML =
-        `<div class="box"><div class="dhead"><div class="dtitle outlined">⬆️ UPGRADES</div><div class="dcount ucoins outlined">${ICON.miniCoin}${v.coins}</div><button class="dclose" aria-label="Close">✕</button></div>` +
-        `<div class="dpity">Kept forever. Paid with coins you earn by playing.</div>` +
-        `<div class="dlist">${v.items.map(row).join('')}</div></div>`
+        `<div class="box"><div class="dhead"><div class="dtitle outlined">${tab === 'upgrades' ? '⬆️ UPGRADES' : '🧸 NURSERY'}</div><div class="dcount ucoins outlined">${ICON.miniCoin}${v.coins}</div><button class="dclose" aria-label="Close">✕</button></div>` +
+        `<div class="utabs"><button class="utab${tab === 'upgrades' ? ' on' : ''}" data-tab="upgrades">⬆️ Upgrades</button><button class="utab${tab === 'nursery' ? ' on' : ''}" data-tab="nursery">🧸 Nursery</button></div>` +
+        `<div class="dpity">${tab === 'upgrades' ? 'Kept forever. Paid with coins you earn by playing.' : 'Decorations for your bedroom at home. Coins only.'}</div>` +
+        `<div class="dlist">${tab === 'upgrades' ? v.items.map(row).join('') : v.decor.map(decorRow).join('')}</div></div>`
       w.querySelector('.dlist').scrollTop = scroll
       tap(w.querySelector('.dclose'), close)
+      for (const t of w.querySelectorAll('.utab'))
+        tap(t, () => {
+          if (tab === t.dataset.tab) return
+          tab = t.dataset.tab
+          scroll = 0
+          sound.click()
+          render()
+        })
     }
     // Buys on click (not pointerdown), so a drag that scrolls the list never buys.
     w.addEventListener('click', (e) => {
@@ -579,6 +766,13 @@ export function createHud() {
       if (!b) return
       const id = b.dataset.buy
       const lvl = onBuy(id)
+      if (id.startsWith('decor:')) {
+        if (!lvl) return void b.animate([{ transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'none' }], { duration: 250 })
+        render()
+        const r = w.querySelector(`.urow[data-id="${id.slice(6)}"]`)
+        r?.classList.add('bought')
+        return
+      }
       if (!lvl) {
         b.animate([{ transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'none' }], { duration: 250 })
         return
@@ -613,11 +807,12 @@ export function createHud() {
   }
 
   // --- reward card ---
-  hud.reward = ({ rarity, color, name, emoji = '🍼', quote, coins: gain, price, isNew = false, bonus = '' }) =>
+  // double: a label for the rewarded-ad button that doubles this baby's coins (null = no button).
+  hud.reward = ({ rarity, color, name, emoji = '🍼', quote, coins: gain, price, isNew = false, bonus = '', double = null }) =>
     new Promise((res) => {
       const w = el('div', 'reward')
       w.style.setProperty('--rc', color)
-      w.innerHTML = `<div class="rays"></div><div class="card"><div class="rhead outlined">${rarity}</div><div class="bname">${emoji} ${name}</div><div class="quote">"${quote}"</div><div class="gain">+${gain} coins${bonus ? `<div class="bonus outlined">${bonus}</div>` : ''}</div><div class="btns"><button class="cute outlined">SO CUTE! ${emoji}</button><button class="again"><span class="outlined">NEW BABY?</span>${priceHTML(price)}</button></div></div>${isNew ? '<div class="new">NEW!</div>' : ''}`
+      w.innerHTML = `<div class="rays"></div><div class="card"><div class="rhead outlined">${rarity}</div><div class="bname">${emoji} ${name}</div><div class="quote">"${quote}"</div><div class="gain">+${gain} coins${bonus ? `<div class="bonus outlined">${bonus}</div>` : ''}</div><div class="btns"><button class="cute outlined">SO CUTE! ${emoji}</button><button class="again"><span class="outlined">NEW BABY?</span>${priceHTML(price)}</button></div>${double ? `<button class="double outlined"><span class="ad-ico">▶</span>${double}<span class="dsub">watch an ad</span></button>` : ''}</div>${isNew ? '<div class="new">NEW!</div>' : ''}`
       layer.appendChild(w)
       tap(w.querySelector('.cute'), () => {
         sound.click()
@@ -628,6 +823,13 @@ export function createHud() {
         w.remove()
         res('again')
       })
+      const dbl = w.querySelector('.double')
+      if (dbl)
+        tap(dbl, () => {
+          sound.click()
+          w.remove()
+          res('double')
+        })
     })
 
   // --- start screen ---

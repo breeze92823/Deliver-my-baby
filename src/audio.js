@@ -397,6 +397,34 @@ export const sound = {
     ;[1319, 1661, 1976].forEach((f, i) => bell(f, t + 0.06 + i * 0.05, 0.8, 0.08))
     noise(t, 0.3, 0.08, { freq: 2500, slide: 6000, q: 2, a: 0.08 })
   },
+  // The nursery toy train's whistle: two soft square-wave notes with a breathy chuff.
+  toot() {
+    if (!ready()) return
+    const t = now()
+    osc('square', 784, t, 0.18, 0.05, sfx, { a: 0.02 })
+    osc('square', 988, t, 0.18, 0.04, sfx, { a: 0.02 })
+    osc('square', 784, t + 0.24, 0.3, 0.05, sfx, { a: 0.02 })
+    noise(t, 0.4, 0.05, { freq: 3000, q: 0.7, a: 0.05 })
+  },
+  // A trip event starts: a bright two-tone sting.
+  event() {
+    if (!ready()) return
+    const t = now()
+    ;[660, 880, 1175].forEach((f, i) => osc('triangle', f, t + i * 0.08, 0.2, 0.12, sfx, { a: 0.005 }))
+    bell(1760, t + 0.26, 0.8, 0.08)
+  },
+  // Another mom's rare baby: a soft announcement chime.
+  announce() {
+    if (!ready()) return
+    const t = now()
+    ;[1047, 1319, 1568].forEach((f, i) => bell(f, t + i * 0.1, 0.9, 0.08))
+  },
+  // Rain on the street (a trip event): one patter burst; called every so often while it rains.
+  rain() {
+    if (!ready()) return
+    const t = now()
+    noise(t, 1.6, 0.05, { type: 'highpass', freq: 2500, q: 0.4, a: 0.4 })
+  },
   shieldPop() {
     if (!ready()) return
     const t = now()

@@ -310,6 +310,7 @@ bloxity.onRespawnRequest(() => game.respawn?.())
 onKey('KeyR', () => game.respawn?.())
 onKey('KeyB', () => hud.dexKey()) // the Babydex
 onKey('KeyU', () => hud.upgKey()) // the upgrade shop
+onKey('KeyJ', () => hud.dailyKey()) // the Daily window
 installTouch({ mode: toggleMode })
 
 hud.start(GAME_TITLE, () => {

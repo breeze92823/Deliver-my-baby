@@ -130,6 +130,23 @@ function request(type, payload, answer, needHydrated = true) {
 // The server checks the reward token with Bloxity: { ok, coins?, reason? }. Offline: { ok: false, reason: 'offline' }.
 export const claimAdReward = (rewardToken) => request('adReward', { rewardToken }, 'adRewardResult', false)
 
+// --- Daily Reward (backend daily.ts) ------------------------------------------------------------
+// The server's calendar { unlocked, claimed, nextAt, serverTime } arrives as `daily` (on join and on
+// dailyRefresh) and with every claim answer.
+let onDaily = () => {}
+export const onDailyState = (fn) => (onDaily = fn)
+export const claimDailyOnServer = (day) => request('claimDaily', { day }, 'dailyResult')
+export const refreshDaily = () => net.connected && send('dailyRefresh', {})
+// The server is the calendar for signed-in players; guests and serverless play keep it locally.
+export const dailyOnServer = () => net.connected && net.hydrated && !isGuest()
+
+// --- Rare-baby announcements (backend `brag` -> `bragged`) --------------------------------------
+let onBrag = () => {}
+export const onBragged = (fn) => (onBrag = fn)
+export function sendBrag(type, rarity, shiny) {
+  if (net.connected) send('brag', { type, rarity, shiny: !!shiny })
+}
+
 // --- Trolls ------------------------------------------------------------------------------
 // Kill on a real mom: sendTroll('kill', her session). Kill All: sendTroll('killAll', the line).
 let onTroll = () => {}
@@ -308,6 +325,14 @@ function attach(room) {
     console.warn('[net] the server could not read the saved progress; saving is off for this session')
   })
   room.onMessage('adRewardResult', (r) => waiting.adRewardResult?.(r))
+  room.onMessage('daily', (m) => onDaily(m))
+  room.onMessage('dailyResult', (r) => {
+    onDaily(r)
+    waiting.dailyResult?.(r)
+  })
+  room.onMessage('bragged', (m) => {
+    if (typeof m?.type === 'string') onBrag({ from: String(m.from || 'A mom').slice(0, 32), type: m.type, shiny: m.shiny === true, rarity: Number(m.rarity) || 0 })
+  })
   room.onMessage('called', (r) => waiting.called?.(r))
   room.onMessage('trolled', (m) => {
     if (typeof m?.id === 'string') onTroll({ id: m.id, from: String(m.from || 'Someone').slice(0, 32), sid: typeof m.sid === 'string' ? m.sid : '', text: String(m.text || '') })

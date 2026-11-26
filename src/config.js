@@ -284,6 +284,7 @@ export const PRICES = {
   killAll: 120, // clear everyone ahead of you in the line
   twins: 350, // twins pass: every delivery brings two babies
   newBaby: 45, // re-roll the baby you just got
+  revenge: 8, // Kill the mom who just knocked you out, wherever she is in the line
 }
 export const REWARDS = {
   pickup: 1, // star coins lying around
@@ -315,6 +316,69 @@ export const UPGRADES = [
   { id: 'lucky', icon: '🍀', name: 'Lucky Charm', about: 'Better odds of rare babies', max: 5, base: 300, grow: 2.2 },
   { id: 'parent', icon: '💰', name: 'Proud Parent', about: 'More coins for every baby', max: 5, base: 200, grow: 2.2 },
   { id: 'shield', icon: '🛡️', name: 'Line Shield', about: "Shrug off other moms' Kills in line", max: 3, base: 300, grow: 2.2 },
+]
+// Daily Reward calendar (daily.js; the backend's daily.ts unlocks one day per UTC day, DAILY_DAYS =
+// days.length). Coins only; day 7 adds a Lucky Swaddle (the next baby is Rare or better).
+export const DAILY = {
+  days: [
+    { coins: 30 },
+    { coins: 50 },
+    { coins: 75 },
+    { coins: 100 },
+    { coins: 150 },
+    { coins: 200 },
+    { coins: 400, swaddles: 1 },
+  ],
+  swaddleRarity: 2, // RARE
+}
+// Daily missions (missions.js): MISSIONS.perDay picked each UTC day from the pool, the same on every
+// device (seeded by the day + the account). `event` is what game.js reports (missions.track).
+export const MISSIONS = {
+  perDay: 3,
+  bonusCoins: 150, // all of today's missions claimed
+  pool: [
+    { id: 'deliver2', text: 'Deliver 2 babies', event: 'baby', goal: 2, coins: 60 },
+    { id: 'deliver3', text: 'Deliver 3 babies', event: 'baby', goal: 3, coins: 90 },
+    { id: 'perfect5', text: 'Get 5 PERFECT breaths', event: 'perfect', goal: 5, coins: 50 },
+    { id: 'stars15', text: 'Collect 15 star coins', event: 'star', goal: 15, coins: 50 },
+    { id: 'rare1', text: 'Get a Rare or better baby', event: 'rare', goal: 1, coins: 80 },
+    { id: 'newdex', text: 'Discover a new Babydex baby', event: 'newdex', goal: 1, coins: 100 },
+    { id: 'quiz5', text: "Answer all of Dr. Bloom's questions", event: 'quizAll', goal: 1, coins: 40 },
+    { id: 'nospeed', text: 'Finish a trip without Speed Up', event: 'calmTrip', goal: 1, coins: 60 },
+    { id: 'cutline', text: 'Cut the line once', event: 'cutLine', goal: 1, coins: 40 },
+    { id: 'upgrade', text: 'Buy an upgrade level', event: 'upgrade', goal: 1, coins: 50 },
+    { id: 'decor', text: 'Buy a nursery decoration', event: 'decor', goal: 1, coins: 50 },
+    { id: 'tripevent', text: 'Complete a trip event', event: 'tripEvent', goal: 1, coins: 60 },
+  ],
+}
+// Kill balance (game.js): a knocked-out mom is protected for `grace` s back in line, gets
+// `compensation` coins, and may take Revenge on whoever did it for `revengeFor` s (PRICES.revenge).
+export const KILLS = { grace: 30, compensation: 15, revengeFor: 120 }
+// Trip events (tripEvents.js): at most one per trip, `chance` of one at all; the first trip has none.
+export const TRIP_EVENTS = {
+  chance: 0.7,
+  goldenStars: { coins: 5 }, // star coins on the walk to the ambulance pay this much each
+  flatTire: { taps: 14, time: 7, coins: 40, penalty: 12 }, // pump taps in `time` s; miss = +penalty s ride
+  greenLights: { mult: 2 }, // the ride drives this much faster for free
+  rain: {},
+  early: {}, // the baby's coming early: one line room is skipped
+}
+// The first trip is short: a quick ride and two rooms skipped, so the first baby comes in ~3 minutes.
+export const FIRST_TRIP = { ride: 40, skipRooms: ['waiting', 'ultrasound'] }
+// The breathing class varies per trip (breathingScene).
+export const BREATHING_STYLES = [
+  { name: 'Steady breathing', cycle: 4 },
+  { name: 'Slow & deep', cycle: 4.8 },
+  { name: 'Quick puffs', cycle: 3.1 },
+]
+// Nursery decorations (decor.js, built at home): coins only, kept forever.
+export const DECOR = [
+  { id: 'nightlight', icon: '🌙', name: 'Star Night-light', about: 'A glowing moon that softly pulses', price: 250 },
+  { id: 'balloons', icon: '🎈', name: 'Balloon Bunch', about: 'Bobbing balloons by the crib', price: 300 },
+  { id: 'garland', icon: '✨', name: 'Twinkle Garland', about: 'Fairy lights that twinkle on the wall', price: 400 },
+  { id: 'horse', icon: '🐴', name: 'Rocking Horse', about: 'Rocks gently all by itself', price: 600 },
+  { id: 'fishtank', icon: '🐠', name: 'Fish Tank', about: 'Little fish swimming laps', price: 900 },
+  { id: 'train', icon: '🚂', name: 'Toy Train', about: 'Chugs around its track with a toot', price: 1500 },
 ]
 export const RIDE = { duration: 120, speed: 17, incomeEvery: 6 } // s, m/s
 // The lines (queue.js, the line approach of linepath.js): the line is a distance `s` along each
@@ -393,7 +457,9 @@ export const ADS = {
 // portal's trophy button show them.
 export const LEADERBOARDS = [
   { id: 'babies', label: 'Babies Delivered', order: 'desc', mode: 'best', format: 'number', reset: 'none' },
+  { id: 'babies_week', label: 'Babies This Week', order: 'desc', mode: 'sum', format: 'number', reset: 'weekly' },
   { id: 'trips', label: 'Hospital Trips', order: 'desc', mode: 'best', format: 'number', reset: 'none' },
+  { id: 'earned', label: 'Top Earners', order: 'desc', mode: 'best', format: 'compact', reset: 'none' },
   { id: 'coins', label: 'Richest Moms', order: 'desc', mode: 'latest', format: 'compact', reset: 'none' },
 ]
 // --- Bloxity emotes (emotes.js): the portal's emote wheel; an emote stops when you move.
