@@ -23,3 +23,5 @@ distDir: dist
 - Every player in a room is drawn as a fellow mom, and the lines hold real players only; just the hospital
   staff are bots.
 - No Gems: nothing in the game is bought with premium currency. Everything costs in-game coins.
+- **Badges**: 7 milestone badges (`BADGES` in the backend `constants.ts`) are declared once and awarded by the
+  game server from the tracked babies / trips / coins (`awardBadges` in `../Deliver-my-baby-backend/src/bloxity.ts`).
