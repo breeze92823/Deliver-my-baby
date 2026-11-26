@@ -17,6 +17,9 @@ export const player = {
   grounded: true,
   facing: SPAWN_FACING, // yaw the character model faces, radians
   dims: { ...PLAYER_DIMS },
+  frozen: false, // ignore move/jump input (cutscenes, dialogues)
+  autoTarget: null, // { x, z, speed?, facing? }: walk there by itself (queues)
+  arrived: true, // reached autoTarget
 }
 
 const HALF = PLAYER_DIMS.height / 2 // capsule centre above the feet
@@ -62,6 +65,7 @@ export function respawn() {
 }
 
 const TAU = Math.PI * 2
+const ZERO = { x: 0, z: 0 }
 // Turns angle `from` toward `to` by at most maxDelta, the short way round.
 function rotateTowards(from, to, maxDelta) {
   const diff = Math.atan2(Math.sin(to - from), Math.cos(to - from))
@@ -95,12 +99,28 @@ function step(dt) {
   const fwdZ = -Math.cos(yaw)
   const rightX = Math.cos(yaw)
   const rightZ = -Math.sin(yaw)
-  const mv = inputState.move
-  const len = Math.hypot(mv.x, mv.z)
+  const mv = player.frozen || player.autoTarget ? ZERO : inputState.move
+  let len = Math.hypot(mv.x, mv.z)
   const scale = len > 1 ? 1 / len : 1
-  const wishX = (fwdX * mv.z + rightX * mv.x) * scale
-  const wishZ = (fwdZ * mv.z + rightZ * mv.x) * scale
-  const speed = inputState.sprint ? PHYSICS.sprintSpeed : PHYSICS.walkSpeed
+  let wishX = (fwdX * mv.z + rightX * mv.x) * scale
+  let wishZ = (fwdZ * mv.z + rightZ * mv.x) * scale
+  let speed = inputState.sprint ? PHYSICS.sprintSpeed : PHYSICS.walkSpeed
+  const at = player.autoTarget
+  if (at) {
+    const dx = at.x - player.position.x
+    const dz = at.z - player.position.z
+    const d = Math.hypot(dx, dz)
+    player.arrived = d < 0.12
+    if (!player.arrived) {
+      wishX = dx / d
+      wishZ = dz / d
+      len = 1
+      speed = Math.min(at.speed ?? PHYSICS.walkSpeed * 0.45, d * 5)
+    } else if (at.facing !== undefined) {
+      player.facing = rotateTowards(player.facing, at.facing, PHYSICS.turnSpeed * dt * 0.5)
+    }
+  }
+  if (player.frozen || at) inputState.jump = false
 
   const rate = !player.grounded ? PHYSICS.airAccel : len > 0.01 ? PHYSICS.accel : PHYSICS.decel
   approach2D(player.velocity, wishX * speed, wishZ * speed, rate * dt)

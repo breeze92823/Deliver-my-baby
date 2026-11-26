@@ -15,7 +15,10 @@ export function isEquipped(id) {
 
 // Equipped-slot table, same shape as SDK.avatar.getEquipped(). `part` slots
 // swap the geometry of the matching default_* SkinnedMesh in the base rig;
-// `item` slots are extra .obj meshes parented to a bone.
+// `item` slots are extra .obj meshes parented to a bone. `origin` is the item's
+// docs origin in MODEL space (player.glb units, feet at 0): a custom character
+// places it with SDK.avatar.characterAccessoryMatrix(character, attach) * translate(origin)
+// (avatar/customCharacter.js); the base rig uses the bone-local `at` / hat lift instead.
 export const AVATAR_SLOTS = [
   { key: 'headId', kind: 'part', type: 'head', replaces: 'default_head' },
   { key: 'torsoId', kind: 'part', type: 'torso', replaces: 'default_torso' },
@@ -23,17 +26,17 @@ export const AVATAR_SLOTS = [
   { key: 'armRId', kind: 'part', type: 'arms', side: 'R', replaces: 'default_arm_R' },
   { key: 'legLId', kind: 'part', type: 'legs', side: 'L', replaces: 'default_leg_L' },
   { key: 'legRId', kind: 'part', type: 'legs', side: 'R', replaces: 'default_leg_R' },
-  { key: 'hatId', kind: 'item', type: 'hats', attach: 'Neck1' },
-  { key: 'backId', kind: 'item', type: 'back', attach: 'Spine2' },
+  { key: 'hatId', kind: 'item', type: 'hats', attach: 'Neck1', origin: [0, 5.6, 0] },
+  { key: 'backId', kind: 'item', type: 'back', attach: 'Spine2', origin: [0, 4.2, 0] },
   // Hair and masks load exactly like hats (same folders, same anchor).
-  { key: 'hairId', kind: 'item', type: 'hats', attach: 'Neck1', at: [0, 0.8, 0] },
-  { key: 'maskId', kind: 'item', type: 'hats', attach: 'Neck1', at: [0, 0.8, 0] },
+  { key: 'hairId', kind: 'item', type: 'hats', attach: 'Neck1', at: [0, 0.8, 0], origin: [0, 5.6, 0] },
+  { key: 'maskId', kind: 'item', type: 'hats', attach: 'Neck1', at: [0, 0.8, 0], origin: [0, 5.6, 0] },
   // The docs give these origins in model space; converted to each bone's local
   // space (Spine2 sits at y 4.2, Spine1 at y 2.4). No URL pattern is documented,
   // so they load through the catalogue's assetPaths only.
-  { key: 'neckId', kind: 'item', attach: 'Spine2', at: [0, 0.6, 0] },
-  { key: 'chestId', kind: 'item', attach: 'Spine2', at: [0, -0.6, 0] },
-  { key: 'waistId', kind: 'item', attach: 'Spine1', at: [0, 0, 0] },
+  { key: 'neckId', kind: 'item', attach: 'Spine2', at: [0, 0.6, 0], origin: [0, 4.8, 0] },
+  { key: 'chestId', kind: 'item', attach: 'Spine2', at: [0, -0.6, 0], origin: [0, 3.6, 0] },
+  { key: 'waistId', kind: 'item', attach: 'Spine1', at: [0, 0, 0], origin: [0, 2.4, 0] },
 ]
 
 export function partUrl(slot, id) {

@@ -161,7 +161,15 @@ async function applyPart(root, slot, id) {
   target.geometry = geometry
 }
 
-async function applyItem(root, slot, id) {
+// Where an item sits on its anchor bone. The base rig's default: bone-local `at`, or the hat lift.
+// Hats are authored for the portal rig, whose renderer parents them to the head bone lifted 0.8
+// up; at the bone origin they sink into the head.
+function placeOnBaseRig(slot, object) {
+  if (slot.at) object.position.set(...slot.at)
+  else if (slot.key === 'hatId') object.position.set(0, HAT_LIFT, 0)
+}
+
+async function applyItem(root, slot, id, place = placeOnBaseRig) {
   const anchor = root.nodes[slot.attach]
   if (!anchor) return
   const item = await describeItem(id)
@@ -192,10 +200,8 @@ async function applyItem(root, slot, id) {
       texture ? { map: texture, ...MATERIAL_PBR.PLAYER } : { color: '#cccccc', ...MATERIAL_PBR.PLAYER },
     )
   })
-  // Hats are authored for the portal rig, whose renderer parents them to the
-  // head bone lifted 0.8 up; at the bone origin they sink into the head.
-  if (slot.at) object.position.set(...slot.at)
-  else if (slot.key === 'hatId') object.position.set(0, HAT_LIFT, 0)
+  object.userData.avatarSlot = slot.key // avatar/belly.js nudges chest / waist items onto the bump
+  place(slot, object)
   anchor.add(object)
 }
 
@@ -235,6 +241,23 @@ export async function attachEquippedAccessories(root, equipped, { signal, skinTe
   }
 }
 
+// Only the hat / back / neck... items, placed by `place(slot, object)`: a custom character
+// (avatar/customCharacter.js) wears no skin, body parts or proportions, just these.
+export async function attachEquippedItems(root, equipped, { signal, place } = {}) {
+  if (!root || !equipped) return
+  try {
+    equipped = await withForcedHead(equipped)
+    if (signal?.aborted) return
+    await Promise.all(
+      AVATAR_SLOTS.filter((slot) => slot.kind === 'item' && isEquipped(equipped[slot.key])).map((slot) =>
+        applyItem(root, slot, equipped[slot.key], place),
+      ),
+    )
+  } catch (err) {
+    console.warn('[avatarLoader] equipping items failed', err)
+  }
+}
+
 function prop(proportions, key) {
   const spec = PROPORTIONS[key]
   const raw = Number(proportions?.[key])
@@ -247,6 +270,11 @@ function prop(proportions, key) {
 // the defaults.
 export function applyProportions(root, proportions) {
   if (!root) return
+  // A custom character keeps its own joints and shape: only the rig-units -> metres scale applies.
+  if (root.userData.customCharacter) {
+    root.scale.setScalar(PLAYER_DIMS.height / RIG_HEIGHT)
+    return
+  }
   const n = root.nodes || {}
   const p = {}
   for (const key of Object.keys(PROPORTIONS)) p[key] = prop(proportions, key)

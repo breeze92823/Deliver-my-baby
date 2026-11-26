@@ -8,10 +8,6 @@ import './touch.css'
 import { COARSE_POINTER, TOUCH } from './config.js'
 import { inputState, requestLock, setTouchMove, setTouchSprint } from './input.js'
 
-const ICONS = {
-  day: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>',
-  respawn: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v5h5"/></svg>',
-}
 
 function el(tag, className, html = '') {
   const e = document.createElement(tag)
@@ -150,11 +146,6 @@ export function installTouch(actions) {
   installJoystick(left)
   installLook(right)
 
-  const top = el('div', 'touch-top')
-  top.append(
-    button('small', ICONS.day, actions.day),
-    button('small', ICONS.respawn, actions.respawn),
-  )
 
   let sprinting = false
   const cluster = el('div', 'touch-cluster')
@@ -170,7 +161,7 @@ export function installTouch(actions) {
     }),
   )
 
-  root.append(left, right, top, cluster)
+  root.append(left, right, cluster)
   document.body.appendChild(root)
 
   setVisible(COARSE_POINTER)

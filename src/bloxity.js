@@ -2,7 +2,7 @@
 // here may throw when the SDK is missing: a blocked sdk.bloxity.io leaves the
 // game fully playable on the default avatar and keyboard controls.
 // Docs: https://docs.bloxity.io/#html5
-import { GAME_SLUG, GAME_TITLE, SETTINGS, DEV_MODE, coerceSetting } from './config.js'
+import { GAME_SLUG, GAME_TITLE, SETTINGS, DEV_MODE, LEADERBOARDS, NET, coerceSetting } from './config.js'
 
 export function sdk() {
   if (DEV_MODE) return null
@@ -178,12 +178,15 @@ export function init() {
     }
 
     unsubscribers.push(
-      SDK.player.onEvent((event) => {
+      SDK.player.onEvent((event, data) => {
         if (event === 'respawn_request') emit(respawnListeners)
+        else if (event === 'play_emote' && typeof data === 'string') emit(emoteListeners, data)
+        else if (event === 'stop_emote') emit(emoteListeners, '')
       }),
     )
+    initPlatformFeatures(SDK)
 
-    SDK.game.loadingStep('Building the island')
+    SDK.game.loadingStep('Getting the nursery ready')
   } catch (err) {
     console.warn('[bloxity] init failed; running without the SDK', err)
     authState.ready = true
@@ -256,6 +259,52 @@ export function getSkinTextureUrl() {
   try {
     const url = sdk()?.avatar?.getSkinTextureUrl?.()
     return typeof url === 'string' && url ? url : null
+  } catch {
+    return null
+  }
+}
+
+// --- Custom characters (a whole-body .glb worn instead of the regular avatar) ---
+// { id, name, glbUrl, textureUrl, rig: { joints, anchors, height, fit? } } or null (none worn / no
+// SDK / the call failed). avatar/customCharacter.js draws it; null means the regular avatar.
+const isCharacter = (c) => !!c && typeof c === 'object' && typeof c.glbUrl === 'string' && !!c.glbUrl
+
+// Dev only (`__game.debug.wearCharacter`): a stand-in character, so the custom-character path runs
+// without the SDK. Its optional `accessoryMatrix(bone)` plays characterAccessoryMatrix.
+let devCharacter = null
+export function setDevCharacter(character) {
+  if (!import.meta.env.DEV) return
+  devCharacter = isCharacter(character) ? character : null
+  emit(avatarListeners)
+}
+
+export async function getCharacter() {
+  if (devCharacter) return devCharacter
+  try {
+    const c = await sdk()?.avatar?.getCharacter?.()
+    return isCharacter(c) ? c : null
+  } catch {
+    return null
+  }
+}
+
+// Another player's character, from the equipped ids they replicate (characterId '-1' = none).
+export async function getCharacterFor(equipped) {
+  if (!equipped || typeof equipped !== 'object') return null
+  if (devCharacter && String(equipped.characterId) === String(devCharacter.id)) return devCharacter
+  try {
+    const c = await sdk()?.avatar?.getCharacterFor?.(equipped)
+    return isCharacter(c) ? c : null
+  } catch {
+    return null
+  }
+}
+
+// 16 numbers (column-major) placing an item on `bone` of `character`, or null (older characters).
+export function characterAccessoryMatrix(character, bone) {
+  try {
+    if (character && character === devCharacter) return devCharacter.accessoryMatrix?.(bone) ?? null
+    return sdk()?.avatar?.characterAccessoryMatrix?.(character, bone) ?? null
   } catch {
     return null
   }
@@ -380,4 +429,187 @@ export function requestFullscreen(on) {
   } catch {
     // Ignore.
   }
+}
+
+// --- Platform features (docs.bloxity.io HTML5: Ads, Screen ads, Death screen, Leaderboards, Emotes,
+// Overhead chat bubbles, Player events). Everything below is a no-op without the SDK. -----------------
+const emoteListeners = new Set()
+const chatListeners = new Set()
+const breakListeners = new Set()
+
+function initPlatformFeatures(SDK) {
+  try {
+    // Ad breaks (required): pause + mute while Boxity plays an ad.
+    if (SDK.ads?.onBreakStart) {
+      unsubscribers.push(SDK.ads.onBreakStart((e) => emit(breakListeners, true, e?.kind)))
+      unsubscribers.push(SDK.ads.onBreakEnd((e) => emit(breakListeners, false, e?.kind)))
+    }
+    // Screen ads (required): declare every screen this game shows. Gameplay banners stay off.
+    SDK.ads?.declareScreens?.({
+      gameplay: {},
+      // middle-right, not bottom-center: the baby card's buttons live in the middle and bottom centre.
+      results: { slots: [{ position: 'middle-right', sizes: ['300x250', '160x600', '320x100', '320x50'] }] },
+    })
+    // Leaderboards: the backend submits the scores; define() shows the boards in the portal.
+    SDK.leaderboard?.define?.(LEADERBOARDS)
+    // Emotes: the portal's emote wheel sends play_emote / stop_emote (handled in init's onEvent).
+    SDK.game?.registerFeature?.('emotes')
+    // Overhead chat bubbles: every chat message, ours included.
+    if (SDK.chat?.onMessage) {
+      unsubscribers.push(
+        SDK.chat.onMessage((m) => {
+          if (!m || m.isGif) return
+          let text = m.text
+          try {
+            text = SDK.chat.bubbleText?.(m) ?? m.text
+          } catch {
+            // Raw text then.
+          }
+          if (typeof text === 'string' && text) emit(chatListeners, { userId: String(m.userId ?? ''), username: String(m.username ?? ''), text, mine: !!m.isLocalPlayer })
+        }),
+      )
+    }
+  } catch (err) {
+    console.warn('[bloxity] platform features failed to start', err)
+  }
+}
+
+// fn(emoteId) on the portal's emote wheel; '' = stop.
+export function onEmote(fn) {
+  emoteListeners.add(fn)
+  return () => emoteListeners.delete(fn)
+}
+// fn({ userId, username, text, mine }) for every chat message (GIFs skipped).
+export function onChat(fn) {
+  chatListeners.add(fn)
+  return () => chatListeners.delete(fn)
+}
+// fn(active, kind) when an ad break starts (true) / ends (false).
+export function onAdBreak(fn) {
+  breakListeners.add(fn)
+  return () => breakListeners.delete(fn)
+}
+
+// The emote catalogue (GET {apiUrl}/v1/avatar/emotes), fetched once: id -> clip.
+let emoteCatalogue = null
+export function emoteClip(id) {
+  emoteCatalogue ||= (async () => {
+    const SDK = sdk()
+    const api = SDK?.environment?.()?.apiUrl || 'https://api.bloxity.io'
+    const res = await fetch(`${api.replace(/\/$/, '')}/v1/avatar/emotes`)
+    const { emotes } = res.ok ? await res.json() : { emotes: [] }
+    return new Map((emotes ?? []).filter((e) => e?.id && e.clip?.tracks).map((e) => [e.id, e.clip]))
+  })().catch((err) => {
+    console.warn('[bloxity] emote catalogue failed', err)
+    emoteCatalogue = null
+    return new Map()
+  })
+  return emoteCatalogue.then((m) => m.get(id) ?? null)
+}
+
+// The Bloxity game token the backend verifies (identity). '' for guests / no SDK.
+export function getToken() {
+  try {
+    return sdk()?.auth?.getToken?.() || ''
+  } catch {
+    return ''
+  }
+}
+
+// The signed-in player's look for the other moms to draw: JSON { equipped, proportions }, ''
+// for the default look.
+export function lookJson() {
+  if (!authState.user) return ''
+  const equipped = getEquippedAvatar()
+  if (!equipped) return ''
+  try {
+    // Never cut mid-JSON (the others could not parse it): too long without the proportions = default look.
+    const full = JSON.stringify({ equipped, proportions: getProportions() ?? null })
+    if (full.length <= NET.avatarMax) return full
+    const bare = JSON.stringify({ equipped, proportions: null })
+    return bare.length <= NET.avatarMax ? bare : ''
+  } catch {
+    return ''
+  }
+}
+// Skin texture (pants / shirt / face drawn in) for another player's equipped set, or null.
+export function skinTextureUrlFor(equipped) {
+  try {
+    const url = sdk()?.avatar?.getSkinTextureUrlFor?.(equipped)
+    return typeof url === 'string' && url ? url : null
+  } catch {
+    return null
+  }
+}
+
+// Friend toasts: someone joined the room after us / was already there.
+export function playerJoined(username) {
+  try {
+    if (username) sdk()?.game?.playerJoined?.(username)
+  } catch {
+    // Ignore.
+  }
+}
+export function playerInRoom(username) {
+  try {
+    if (username) sdk()?.game?.playerInRoom?.(username)
+  } catch {
+    // Ignore.
+  }
+}
+
+// --- Rewarded ads ----------------------------------------------------------------------------------
+export function rewardedAvailable() {
+  try {
+    return !!sdk()?.ads?.isAvailable?.()
+  } catch {
+    return false
+  }
+}
+// Plays a rewarded ad: { status, rewardToken?, test?, reason? }. Grant only on status 'completed'
+// AND a backend-verified token (net.js claimAdReward).
+export async function showRewarded(placement) {
+  try {
+    const r = await sdk()?.ads?.showRewarded?.(placement)
+    return r && typeof r === 'object' ? r : { status: 'disabled' }
+  } catch {
+    return { status: 'error' }
+  }
+}
+// A full screen ad between scenes ('results' while you head home with the baby). Returns a handle or null.
+export function showScreenAd(type) {
+  try {
+    return sdk()?.ads?.screen?.(type) ?? null
+  } catch {
+    return null
+  }
+}
+export function hideScreenAd() {
+  try {
+    sdk()?.ads?.hideScreen?.()
+  } catch {
+    // Ignore.
+  }
+}
+
+// --- Death screen ------------------------------------------------------------------------------------
+// Shows Boxity's death screen and resolves once the player may get up (countdown 0). Resolves at once
+// without the SDK (outside Boxity the countdown is 0 too).
+export function deathScreen() {
+  let handle = null
+  try {
+    handle = sdk()?.deathScreen?.show?.()
+  } catch {
+    handle = null
+  }
+  if (!handle) return Promise.resolve()
+  return Promise.resolve(handle.ready)
+    .catch(() => {})
+    .then(() => {
+      try {
+        if (!handle.respawn?.()) sdk()?.deathScreen?.hide?.()
+      } catch {
+        // Closed anyway.
+      }
+    })
 }

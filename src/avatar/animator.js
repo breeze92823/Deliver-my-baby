@@ -58,6 +58,25 @@ class PlayerAnimator {
     this.stateTime += dt
     this.resolveState(dt, input)
     this.writePose(dt, input)
+    // Scripted poses: `pose` replaces the whole body (sit, lie...), `overlay`
+    // replaces only the bones it names (arms carrying a baby...).
+    if (input.pose) {
+      this.target.applyDefinition(input.pose)
+      this.target.bobY = 0
+    }
+    if (input.overlay) {
+      for (const b in input.overlay) {
+        const r = input.overlay[b]
+        this.target.set(b, r.x ?? 0, r.y ?? 0, r.z ?? 0)
+      }
+    }
+    if (input.pose !== this.lastPose || input.overlay !== this.lastOverlay) {
+      this.from.copyFrom(this.output)
+      this.blendTime = 0
+      this.blendDuration = 0.18
+      this.lastPose = input.pose
+      this.lastOverlay = input.overlay
+    }
     this.blend(dt)
     this.rig.applyPose(this.output)
     this.applyVisual(dt, input)
@@ -176,7 +195,7 @@ class PlayerAnimator {
   }
 
   applyVisual(dt, input) {
-    const wantBank = this.state === 'run' ? -input.turn * L.bankAngle * 0.6 : 0
+    const wantBank = this.state === 'run' && !input.pose ? -(input.turn ?? 0) * L.bankAngle * 0.6 : 0
     this.bank += (wantBank - this.bank) * (1 - Math.exp(-L.bankRate * dt))
     this.root.rotation.set(0, 0, this.bank)
     this.root.position.y = this.output.bobY

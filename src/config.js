@@ -1,28 +1,15 @@
 // Every tunable constant lives here; the rest of src/ holds no theme values.
 
 // --- Identity -------------------------------------------------------------
-export const GAME_SLUG = 'bowling-roll' // slug registered on bloxity.io
-export const GAME_TITLE = 'Bowling Roll'
+export const GAME_SLUG = 'deliver-my-baby' // slug registered on bloxity.io
+export const GAME_TITLE = 'Deliver My Baby'
 
 // Forces the Bloxity SDK and avatar CDN to be treated as unavailable (see .env.example).
 export const DEV_MODE = import.meta.env.VITE_DEV_MODE === 'true'
 
 // --- World (metres: +X east, +Z south, +Y up) -------------------------------
 export const GROUND_Y = 0
-// The ground (world.js): one convex slab of land in a sea. The shoreline sweeps from
-// the front edge (-Z) back toward +Z on both wings.
-export const BEACH = {
-  front: -46, // z of the shoreline at the front edge
-  back: 90, // z of the back edge
-  halfWidth: 75, // x extent of the wings
-  wingZ: 24, // z of the shoreline at the far left/right ends
-  gateEdge: 21.5, // half-width of the straight shoreline at the front edge
-  depth: 4, // slab thickness above the sea floor
-  tile: 18, // m per sand texture tile
-  fenceHeight: 3, // invisible wall around the sand so nobody walks into the sea
-}
-export const WATER = { level: -0.6, size: 1400, color: '#12a9e6', shallow: '#7ff0ff' }
-export const SPAWN = { x: 0, y: 0.05, z: 8 }
+export const SPAWN = { x: -1.5, y: 0.05, z: 1.5 } // beside the bed in the bedroom
 export const SPAWN_FACING = Math.PI // yaw the character faces on spawn (PI = toward -Z)
 
 // --- Player modes (modes.js) -------------------------------------------------
@@ -55,13 +42,13 @@ export const PLAYER_DIMS = { radius: 0.75, height: 1.8 } // capsule the characte
 
 // --- Look ------------------------------------------------------------------
 export const RENDER = { exposure: 1.0 }
-export const FOG = { near: 170, far: 650 }
+export const FOG = { near: 140, far: 560 }
 // The two lighting moods lighting.js blends between (key N toggles).
 export const TIME_OF_DAY = {
   transition: 2.5, // s to blend day <-> night
   day: {
-    zenith: '#1576f0',
-    horizon: '#a9e2ff',
+    zenith: '#2f8fff',
+    horizon: '#bfe8ff',
     sunColor: '#fff4de',
     // Sun + hemi + env together keep the pale sand (#eed39c) near its own tan;
     // much more and ACES washes it (and the props) out to grey-white.
@@ -69,9 +56,9 @@ export const TIME_OF_DAY = {
     sunElevation: 55, // degrees above the horizon
     sunAzimuth: 35, // degrees, 0 = from +Z
     hemiSky: '#e4f2ff',
-    hemiGround: '#d8c39a',
-    hemiIntensity: 0.8,
-    envIntensity: 0.45,
+    hemiGround: '#cdbfae',
+    hemiIntensity: 1.05,
+    envIntensity: 0.55,
     lampIntensity: 0,
     stars: 0,
     exposure: 0.95,
@@ -93,7 +80,7 @@ export const TIME_OF_DAY = {
   },
 }
 export const LIGHT = {
-  shadowRange: 40, // half-width of the sun's shadow box around the player
+  shadowRange: 34, // half-width of the sun's shadow box around the player
   lampColor: '#ffb35c',
   lampDistance: 22,
 }
@@ -147,14 +134,14 @@ export const TOUCH = {
 // --- Camera (camera.js) -------------------------------------------------------
 export const CAMERA = {
   fov: 70,
-  near: 0.1,
+  near: 0.2, // 0.1 left too little depth precision at range (z-fighting on far ground layers)
   far: 1200,
-  startPitch: 0.14, // radians above the horizon (low chase cam)
+  startPitch: 0.32, // radians above the horizon
   minPitch: -0.35,
   maxPitch: 1.25,
   firstPersonPitch: 1.45, // |pitch| limit looking up/down in player mode
   eyeHeight: 0.92, // eye height as a fraction of player height (player mode)
-  distance: 12.4, // resting boom length, m
+  distance: 9, // resting boom length, m
   minDistance: 2.5, // wheel in past this enters player mode
   maxDistance: 26,
   followLerp: 14, // 1/s: the one smoothing stage, on the point the camera follows
@@ -181,6 +168,19 @@ export const SETTINGS = {
 export const RIG_HEIGHT = 6.4
 // Bind-pose values of the rig nodes the SDK proportions drive.
 export const RIG = { armOffsetX: 2, legOffsetX: 0.6, neckOffsetY: 0.6 }
+// The player's belly (avatar/belly.js), built into the avatar's own torso. Sizes are fractions of
+// the torso's measured box (width w, height h) so every body / torso part gets a bump to its own scale:
+// half-width = width * w, half-height = height * h, forward bulge = depth * min(w, h).
+export const BELLY = {
+  one: { width: 0.5, height: 0.52, depth: 0.62 },
+  twins: { width: 0.56, height: 0.6, depth: 0.8 },
+  centerY: 0.38, // bump centre, as a fraction of the torso height up from its bottom
+  edge: 0.2, // subdivision target edge length, as a fraction of the smaller bump half-axis
+  maxPasses: 8,
+  minTorsoVerts: 4, // fewer vertices weighted to Spine1/Spine2 than this = no usable torso
+  sphere: { one: 1.45, twins: 1.75 }, // fallback sphere radius (rig units) when no torso can be bulged
+  color: '#c9d8cf', // fallback sphere colour when the torso texture can't be sampled
+}
 // getProportions() ranges, straight from the SDK spec; clamped before they reach the scene graph.
 export const PROPORTIONS = {
   height: { def: 1, min: 0.5, max: 1.6 },
@@ -270,4 +270,111 @@ export function coerceSetting(key, raw) {
   if (spec.type === 'enum') return spec.values.includes(value) ? value : spec.def
   const n = Number(value)
   return clamp(Number.isFinite(n) ? n : Number(spec.def), spec.min, spec.max)
+}
+
+// --- Game: economy, prices, timings ----------------------------------------------
+// Nothing is ever sold for premium currency: every product costs in-game coins
+// (earned by playing), priced a little high on purpose.
+export const START_COINS = 12
+export const PRICES = {
+  speedUp: 15, // ambulance drives 2x faster (stacks once more to 4x at double price)
+  skipToEnd: 150, // jump straight to the delivery room
+  cutLine: 20, // move 5 places up the current line
+  kill: 12, // knock the mom in front of you out of the line
+  killAll: 120, // clear everyone ahead of you in the line
+  twins: 350, // twins pass: every delivery brings two babies
+  newBaby: 45, // re-roll the baby you just got
+}
+export const REWARDS = {
+  pickup: 1, // star coins lying around
+  rideTick: 1, // every RIDE.incomeEvery seconds in the ambulance
+  queueTick: 1, // every QUEUE.incomeEvery seconds in a line
+  answer: 2, // per dialogue answer
+  breath: 3, // per good breath
+  phase: 10, // finishing a phase
+}
+export const RIDE = { duration: 120, speed: 17, incomeEvery: 6 } // s, m/s
+// The lines (queue.js, the line approach of linepath.js): the line is a distance `s` along each
+// room's serpentine path (back of the line 0, head of the line = its length). Bot moms shuffle up,
+// never closer than `slotSpacing` to the one ahead; the head goes to a free spot at the front (the
+// lobby's 3 windows, one station in the other rooms) and frees it `serve` s later.
+export const QUEUE = {
+  secondsPerPerson: 6, // s between bot moms sent from the head of a line (MOMS.bots only: the pace of a bot line)
+  realGap: 0.7, // s between moms sent to the spots when the line holds real moms only
+  slotSpacing: 1.15, // m between moms in line
+  lineSpeed: 1.6, // m/s moms shuffle forward (3.3 to catch up a gap)
+  serve: 1.6, // s a bot mom stays at the spot before leaving through the exit
+  autoSpeed: 3.2, // m/s the player is walked to their place along the lanes
+  joinRadius: 1.8, // m from the LINE STARTS HERE mat that joins you
+  leaveHold: 1.0, // s of pushing the stick to step out of a line (short nudges keep your place)
+  incomeEvery: 8,
+  cutLinePlaces: 5,
+  killRange: 4,
+  block: { radius: 0.38, height: 1.8 }, // solid capsule around every bot mom in a line: no walking through it
+  // A real mom in a line who stopped moving with free room ahead of her (`room` m past the spot she
+  // could step up to) for `after` s is stalled: offline, this client drops her from its copy of the
+  // line until she moves `moved` m. Away moms (tab hidden, game stopped) are dropped at once.
+  stall: { after: 6, moved: 0.3, room: 1.2 },
+  // Online the server keeps every line's order (join tickets, backend lines.ts) and calls the moms to
+  // the spots: the first `callDepth` may be called at once (one per free spot), asked at most every
+  // `callEvery` s. (Away / idle real moms are passed over.)
+  callDepth: 3,
+  callEvery: 0.4,
+}
+// Who stands in the lines (the Don't Miss Your Flight rule, its PASSENGERS): real players only.
+// The staff are bots, the line moms are not. bots: true brings back bot moms that fill in while real
+// ones are few (LINES of them on the first trip, scaled by remote.botShare(): none from `fullAt`
+// real moms in the hospital rooms).
+export const MOMS = { bots: false, fullAt: 6 }
+// Bot moms per line on the first trip (MOMS.bots only; later trips vary a little).
+export const LINES = { lobby: 23, waiting: 19, breathing: 18, ultrasound: 18, final: 30 }
+export const BREATHING = { breaths: 8, cycle: 4, goodWindow: 0.16, perfectWindow: 0.07 } // cycle s per in+out
+export const DIALOGUE = { choiceTime: 10, quizTime: 9 }
+export const AUDIO = { master: 0.8, sfx: 0.9, music: 0.32, ambience: 0.6 }
+export const NAMES = ['Maple', 'Biscuit', 'Peanut', 'Pickle', 'Clover', 'Waffles', 'Juniper', 'Bean', 'Poppy', 'Nugget', 'Willow', 'Sprout', 'Mochi', 'Pebble', 'Honey', 'Olive', 'Dumpling', 'Button', 'Sunny', 'Pudding']
+export const HOSPITAL_NAME = 'Little Bloom Maternity'
+
+// --- Multiplayer (net.js + remote.js) --------------------------------------------------------------
+// Dev talks to a local `npm start` backend (VITE_SERVER_URL_DEV overrides); production resolves the
+// Bloxity Legion endpoint through the SDK. Without a server the game plays on the browser save.
+export const SERVER_URL = import.meta.env.DEV ? import.meta.env.VITE_SERVER_URL_DEV || 'ws://localhost:2567' : ''
+export const NET = {
+  saveEvery: 4, // s between saves while something changed
+  requestTimeout: 6, // s a request (callMe, ad reward) waits for the server's answer
+  retry: 3, // s before the first reconnect attempt (doubles up to retryMax)
+  retryMax: 60,
+  rejoin: 2, // s after a dropped room before rejoining
+  trollCooldown: 1.2, // s between two Kill / Kill All relays on real moms (a little over the backend's TROLL_COOLDOWN_MS, for jitter)
+  avatarMax: 8000, // longest look JSON the others are sent (backend AVATAR_MAX_LEN)
+}
+// The other real players are moms in the same rooms (remote.js); the staff and the line moms are bots.
+export const REMOTE = {
+  poseEvery: 0.1, // s between pose updates sent
+  tripEvery: 0.5, // s between checks for a changed trip (zone / hold / belly / babies / look)
+  delay: 0.15, // s others are drawn behind real time (smooth interpolation)
+  drawDist: 70, // m: moms further away are hidden
+  maxDrawn: 24, // full avatars drawn at once (the nearest)
+  tagDist: 26, // m: name tags shown this close
+  aliveEvery: 1, // s between `alive` beats from the game loop (no beat for 5 s = away for the others)
+  activeEvery: 2, // s between `active` messages while the player gives input (none for 60 s = idle: passed over in lines)
+  knockout: 2.2, // s a mom lies knocked out by another player's Kill before the death screen lets her up
+}
+// --- Bloxity ads (bloxity.js): rewarded ad for coins (verified by the backend), the results screen
+// ad shown while you head home with the baby. Coins per ad = the backend's AD_REWARD_COINS, cooldown (s)
+// = its AD_REWARD_COOLDOWN_MS: online no ad is played before it ran out (the server would refuse it).
+export const ADS = {
+  reward: { placement: 'free-coins', coins: 40, cooldown: 60 },
+  resultsScreen: true,
+}
+// --- Bloxity leaderboards: the ids the backend reports to (constants.ts BOARDS). define() makes the
+// portal's trophy button show them.
+export const LEADERBOARDS = [
+  { id: 'babies', label: 'Babies Delivered', order: 'desc', mode: 'best', format: 'number', reset: 'none' },
+  { id: 'trips', label: 'Hospital Trips', order: 'desc', mode: 'best', format: 'number', reset: 'none' },
+  { id: 'coins', label: 'Richest Moms', order: 'desc', mode: 'latest', format: 'compact', reset: 'none' },
+]
+// --- Bloxity emotes (emotes.js): the portal's emote wheel; an emote stops when you move.
+export const EMOTES = {
+  blendIn: 0.12, // s
+  stopSpeed: 0.6, // m/s of movement that cancels an emote
 }
